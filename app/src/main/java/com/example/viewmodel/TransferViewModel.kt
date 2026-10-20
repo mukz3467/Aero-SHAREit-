@@ -113,10 +113,13 @@ class TransferViewModel(application: Application) : AndroidViewModel(application
         serverEngine = AeroTransferServer(
             context = context,
             onIncomingRequest = { request, callback ->
-                _uiState.update { it.copy(pendingSafeDropRequest = request) }
-                if (!_uiState.value.isSafeDropEnabled || SafeDropManager.isDeviceTrusted(request.peerName)) {
+                val autoApproved = !_uiState.value.isSafeDropEnabled ||
+                    SafeDropManager.isDeviceTrusted(request.peerName)
+                if (autoApproved) {
+                    _uiState.update { it.copy(pendingSafeDropRequest = null) }
                     callback(true)
                 } else {
+                    _uiState.update { it.copy(pendingSafeDropRequest = request) }
                     pendingSafeDropApproval = callback
                 }
             },
