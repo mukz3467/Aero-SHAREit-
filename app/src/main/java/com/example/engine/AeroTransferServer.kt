@@ -162,39 +162,48 @@ class AeroTransferServer(
                 }
 
                 var fileTransferred = 0L
-                tempFile.outputStream().use { fos ->
-                    val buffer = ByteArray(AeroTransferProtocol.TURBO_CHUNK_SIZE)
-                    while (fileTransferred < fileSize) {
-                        val toRead = Math.min(buffer.size.toLong(), fileSize - fileTransferred).toInt()
-                        val bytesRead = input.read(buffer, 0, toRead)
-                        if (bytesRead == -1) break
-                        fos.write(buffer, 0, bytesRead)
-                        fileTransferred += bytesRead
-                        transferredSoFar += bytesRead
+                try {
+                    tempFile.outputStream().use { fos ->
+                        val buffer = ByteArray(AeroTransferProtocol.TURBO_CHUNK_SIZE)
+                        while (fileTransferred < fileSize) {
+                            val toRead = Math.min(buffer.size.toLong(), fileSize - fileTransferred).toInt()
+                            val bytesRead = input.read(buffer, 0, toRead)
+                            if (bytesRead == -1) break
+                            fos.write(buffer, 0, bytesRead)
+                            fileTransferred += bytesRead
+                            transferredSoFar += bytesRead
 
-                        val elapsedSec = Math.max(0.1, (System.currentTimeMillis() - startTime) / 1000.0)
-                        val speed = ((transferredSoFar * 8f) / (elapsedSec * 1024 * 1024)).toFloat()
+                            val elapsedSec = Math.max(0.1, (System.currentTimeMillis() - startTime) / 1000.0)
+                            val speed = ((transferredSoFar * 8f) / (elapsedSec * 1024 * 1024)).toFloat()
 
-                        val record = TransferRecord(
-                            id = req.requestId,
-                            fileName = fileName,
-                            fileSizeFormatted = StorageSmartManager.formatBytes(totalBytes),
-                            totalBytes = totalBytes,
-                            transferredBytes = transferredSoFar,
-                            progress = (transferredSoFar.toFloat() / Math.max(1L, totalBytes)).coerceIn(0f, 1f),
-                            speedMbps = speed,
-                            isIncoming = true,
-                            peerName = clientDeviceName,
-                            status = TransferStatus.TRANSFERRING,
-                            localFilePath = tempFile.absolutePath
-                        )
-                        onProgressUpdate(record)
+                            val record = TransferRecord(
+                                id = req.requestId,
+                                fileName = fileName,
+                                fileSizeFormatted = StorageSmartManager.formatBytes(totalBytes),
+                                totalBytes = totalBytes,
+                                transferredBytes = transferredSoFar,
+                                progress = (transferredSoFar.toFloat() / Math.max(1L, totalBytes)).coerceIn(0f, 1f),
+                                speedMbps = speed,
+                                isIncoming = true,
+                                peerName = clientDeviceName,
+                                status = TransferStatus.TRANSFERRING,
+                                localFilePath = tempFile.absolutePath
+                            )
+                            onProgressUpdate(record)
+                        }
                     }
+                } catch (ex: Exception) {
+                    tempFile.delete()
+                    throw ex
                 }
 
                 // Commit only a complete file whose checksum matches.
                 val complete = fileTransferred == fileSize
-                val actualSha = if (complete) FileIntegrityEngine.calculateFileSha256(tempFile) else ""
+                val actualSha = try {
+                    if (complete) FileIntegrityEngine.calculateFileSha256(tempFile) else ""
+                } catch (_: Exception) {
+                    ""
+                }
                 val checksumMatches = complete && FileIntegrityEngine.verifyChecksum(expectedSha, actualSha)
                 val totalMatches = i != filesCount - 1 || declaredBytes == totalBytes
                 val finalFile = AeroSecuritySanitizer.resolveUniqueFile(receivedDir, fileName)
