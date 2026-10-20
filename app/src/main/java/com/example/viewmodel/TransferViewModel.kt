@@ -154,12 +154,16 @@ class TransferViewModel(application: Application) : AndroidViewModel(application
                 )
                 onTransferRecordCompleted(finalRecord, isOutgoing = false)
             },
-            onError = { _ ->
+            onError = { message ->
                 _uiState.update { state ->
                     val cur = state.activeTransferRecord
-                    state.copy(activeTransferRecord = cur?.copy(status = TransferStatus.FAILED))
+                    state.copy(
+                        activeTransferRecord = cur?.copy(status = TransferStatus.FAILED),
+                        storageCleanerMessage = message
+                    )
                 }
-            }
+            },
+            liteModeProvider = { _uiState.value.isLiteMode }
         )
 
         clientEngine = AeroTransferClient(
@@ -435,7 +439,8 @@ class TransferViewModel(application: Application) : AndroidViewModel(application
                                 )
                             }
                             completed.complete(false)
-                        }
+                        },
+                        liteModeProvider = { _uiState.value.isLiteMode }
                     )
                     synchronized(groupTransferClients) { groupTransferClients.add(groupClient) }
                     groupClient.startTransfer(
