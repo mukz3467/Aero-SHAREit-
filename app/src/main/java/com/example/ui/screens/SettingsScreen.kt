@@ -200,8 +200,8 @@ fun SettingsScreen(
         item {
             SettingsToggleCard(
                 icon = Icons.Default.Wifi,
-                title = "Prefer 5GHz Band",
-                subtitle = "Uses 80MHz channel width for speeds up to 45 MB/s on supported hardware",
+                title = "Prefer 5GHz Band (advisory)",
+                subtitle = "This preference does not force the Wi-Fi band; Android and the connected network control it.",
                 isChecked = uiState.is5GhzPreferred,
                 onCheckedChange = onToggle5Ghz
             )
@@ -210,8 +210,8 @@ fun SettingsScreen(
         item {
             SettingsToggleCard(
                 icon = Icons.Default.WifiTethering,
-                title = "Auto-Disconnect Hotspot",
-                subtitle = "Closes Wi-Fi Direct beacon when transfer finishes to save battery",
+                title = "Auto-Disconnect (not integrated)",
+                subtitle = "Automatic hotspot or Wi-Fi Direct lifecycle management is not implemented yet.",
                 isChecked = uiState.autoDisconnect,
                 onCheckedChange = onToggleAutoDisconnect
             )
