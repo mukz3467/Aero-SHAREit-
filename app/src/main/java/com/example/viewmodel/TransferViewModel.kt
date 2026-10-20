@@ -1,0 +1,607 @@
+package com.example.viewmodel
+
+import android.app.Application
+import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.viewModelScope
+import com.example.engine.AeroTransferClient
+import com.example.engine.AeroTransferServer
+import com.example.engine.CacheUsageReport
+import com.example.engine.FileIntegrityEngine
+import com.example.engine.FileManagerAndCleanerEngine
+import com.example.engine.LocalMediaStoreExplorer
+import com.example.engine.PhoneToPcBridgeServer
+import com.example.engine.SafeDropManager
+import com.example.engine.SafeDropRequest
+import com.example.engine.StorageSmartManager
+import com.example.engine.TransferAutopilot
+import com.example.model.FileCategory
+import com.example.model.FileItem
+import com.example.model.FileReceiptItem
+import com.example.model.GroupPeer
+import com.example.model.GroupRoomSession
+import com.example.model.NearbyDevice
+import com.example.model.TransferRecord
+import com.example.model.TransferStatus
+import com.example.model.VerifiedReceipt
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
+import java.io.File
+import java.util.UUID
+
+enum class ActiveScreen {
+    HOME,
+    FILE_BROWSER,
+    DISCOVERING_PEERS,
+    RECEIVING_BEACON,
+    ACTIVE_TRANSFER,
+    GROUP_ROOM,
+    PHONE_TO_PC,
+    PHONE_MIGRATION,
+    RECEIPT_DETAIL,
+    HISTORY,
+    SETTINGS
+}
+
+data class TransferUiState(
+    val currentScreen: ActiveScreen = ActiveScreen.HOME,
+    val deviceName: String = "Pixel 8 Pro - Aero",
+    val availableFiles: List<FileItem> = emptyList(),
+    val selectedFiles: Set<String> = emptySet(),
+    val selectedCategory: FileCategory = FileCategory.PHOTOS,
+    val nearbyDevices: List<NearbyDevice> = emptyList(),
+    val selectedPeer: NearbyDevice? = null,
+    val activeTransferRecord: TransferRecord? = null,
+    val historyRecords: List<TransferRecord> = emptyList(),
+    val receipts: List<VerifiedReceipt> = emptyList(),
+    val selectedReceipt: VerifiedReceipt? = null,
+    val groupSession: GroupRoomSession = GroupRoomSession(),
+    val is5GhzPreferred: Boolean = true,
+    val isEncryptionEnabled: Boolean = true,
+    val autoDisconnect: Boolean = true,
+    val isLiteMode: Boolean = false,
+    val isPinRequired: Boolean = false,
+    val isSafeDropEnabled: Boolean = true,
+    val isBridgeServerActive: Boolean = false,
+    val bridgeUrl: String = "http://192.168.49.1:8844?token=882944",
+    val bridgeAuthToken: String = "882944",
+    val pendingSafeDropRequest: SafeDropRequest? = null,
+    val connectedPcClients: Int = 0,
+    val autopilotRecommendation: String = "5GHz Turbo Link Active • AES-GCM Encrypted Handshake",
+    val totalSentBytes: Long = 0L,
+    val totalReceivedBytes: Long = 0L,
+    val averageSpeedMbps: Float = 0.0f,
+    val hasStoragePermission: Boolean = false,
+    val isScanningMedia: Boolean = false,
+    val categoryCounts: Map<FileCategory, Int> = emptyMap(),
+    val categorySizes: Map<FileCategory, Long> = emptyMap(),
+    val cacheReport: CacheUsageReport = CacheUsageReport(0L, 0L, 0, 0, "0 B", "0 B"),
+    val storageCleanerMessage: String? = null,
+    val selectedHistoryRecordIds: Set<String> = emptySet()
+)
+
+class TransferViewModel(application: Application) : AndroidViewModel(application) {
+
+    private val _uiState = MutableStateFlow(TransferUiState())
+    val uiState: StateFlow<TransferUiState> = _uiState.asStateFlow()
+
+    private var transferJob: Job? = null
+    private var serverEngine: AeroTransferServer? = null
+    private var clientEngine: AeroTransferClient? = null
+    private var pcBridgeServer: PhoneToPcBridgeServer? = null
+
+    init {
+        initTransferEngines()
+        updateAutopilot()
+        refreshMediaStore()
+        refreshCacheUsage()
+        initNearbyDevices()
+    }
+
+    private fun initTransferEngines() {
+        val context = getApplication<Application>()
+
+        serverEngine = AeroTransferServer(
+            context = context,
+            onIncomingRequest = { request, callback ->
+                _uiState.update { it.copy(pendingSafeDropRequest = request) }
+                if (!_uiState.value.isSafeDropEnabled || SafeDropManager.isDeviceTrusted(request.peerName)) {
+                    callback(true)
+                } else {
+                    callback(true)
+                }
+            },
+            onProgressUpdate = { record ->
+                _uiState.update { it.copy(activeTransferRecord = record) }
+            },
+            onTransferFinished = { receipt ->
+                addVerifiedReceipt(receipt)
+                val finalRecord = TransferRecord(
+                    id = receipt.sessionId,
+                    fileName = receipt.fileReceiptItems.firstOrNull()?.fileName ?: "Received_Batch",
+                    fileSizeFormatted = StorageSmartManager.formatBytes(receipt.totalBytesTransferred),
+                    totalBytes = receipt.totalBytesTransferred,
+                    transferredBytes = receipt.totalBytesTransferred,
+                    progress = 1.0f,
+                    speedMbps = receipt.averageSpeedMbps,
+                    isIncoming = true,
+                    peerName = receipt.peerDeviceName,
+                    status = TransferStatus.COMPLETED,
+                    localFilePath = "${context.cacheDir.path}/transfers/${receipt.fileReceiptItems.firstOrNull()?.fileName}",
+                    sha256Checksum = receipt.fileReceiptItems.firstOrNull()?.sha256Checksum
+                )
+                onTransferRecordCompleted(finalRecord, isOutgoing = false)
+            },
+            onError = { _ ->
+                _uiState.update { state ->
+                    val cur = state.activeTransferRecord
+                    state.copy(activeTransferRecord = cur?.copy(status = TransferStatus.FAILED))
+                }
+            }
+        )
+
+        clientEngine = AeroTransferClient(
+            context = context,
+            onProgressUpdate = { record ->
+                _uiState.update { it.copy(activeTransferRecord = record) }
+            },
+            onTransferFinished = { receipt ->
+                addVerifiedReceipt(receipt)
+                val cur = _uiState.value.activeTransferRecord
+                val finalRecord = cur?.copy(
+                    status = TransferStatus.COMPLETED,
+                    transferredBytes = receipt.totalBytesTransferred,
+                    progress = 1.0f,
+                    speedMbps = receipt.averageSpeedMbps
+                ) ?: TransferRecord(
+                    id = receipt.sessionId,
+                    fileName = receipt.fileReceiptItems.firstOrNull()?.fileName ?: "Batch",
+                    fileSizeFormatted = StorageSmartManager.formatBytes(receipt.totalBytesTransferred),
+                    totalBytes = receipt.totalBytesTransferred,
+                    transferredBytes = receipt.totalBytesTransferred,
+                    progress = 1.0f,
+                    speedMbps = receipt.averageSpeedMbps,
+                    isIncoming = false,
+                    peerName = receipt.peerDeviceName,
+                    status = TransferStatus.COMPLETED
+                )
+                onTransferRecordCompleted(finalRecord, isOutgoing = true)
+            },
+            onError = { _ ->
+                _uiState.update { state ->
+                    val cur = state.activeTransferRecord
+                    state.copy(activeTransferRecord = cur?.copy(status = TransferStatus.FAILED))
+                }
+            }
+        )
+
+        pcBridgeServer = PhoneToPcBridgeServer(
+            context = context,
+            onClientConnected = { _ ->
+                _uiState.update { it.copy(connectedPcClients = it.connectedPcClients + 1) }
+            }
+        )
+    }
+
+    private fun initNearbyDevices() {
+        val peers = listOf(
+            NearbyDevice("d1", "Sarah's Galaxy S24 Ultra", "192.168.49.20", 8829, is5Ghz = true, signalStrength = 98, deviceModel = "Samsung SM-S928B"),
+            NearbyDevice("d2", "Alex's Pixel 9 Pro", "192.168.49.21", 8829, is5Ghz = true, signalStrength = 92, deviceModel = "Google Pixel 9 Pro"),
+            NearbyDevice("d3", "Living Room Android TV", "192.168.49.22", 8829, is5Ghz = false, signalStrength = 78, deviceModel = "Google TV 4K")
+        )
+        _uiState.update { it.copy(nearbyDevices = peers) }
+    }
+
+    private fun updateAutopilot() {
+        val recommendation = TransferAutopilot.analyzeAndRecommend(
+            context = getApplication(),
+            batchBytes = 350_000_000L,
+            isPcPeer = false,
+            isGroupSession = false
+        )
+        _uiState.update {
+            it.copy(autopilotRecommendation = "${recommendation.recommendedBand} • ${recommendation.recommendedMode}")
+        }
+    }
+
+    fun refreshMediaStore() {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isScanningMedia = true) }
+            val scanResult = LocalMediaStoreExplorer.queryAllCategorized(getApplication())
+            _uiState.update { state ->
+                state.copy(
+                    availableFiles = scanResult.allFiles,
+                    hasStoragePermission = scanResult.hasPermission,
+                    isScanningMedia = false,
+                    categoryCounts = scanResult.categoryCounts,
+                    categorySizes = scanResult.categorySizes
+                )
+            }
+        }
+    }
+
+    fun navigateTo(screen: ActiveScreen) {
+        _uiState.update { it.copy(currentScreen = screen) }
+    }
+
+    fun selectCategory(category: FileCategory) {
+        _uiState.update { it.copy(selectedCategory = category, currentScreen = ActiveScreen.FILE_BROWSER) }
+    }
+
+    fun toggleFileSelection(fileId: String) {
+        _uiState.update { state ->
+            val set = state.selectedFiles.toMutableSet()
+            if (set.contains(fileId)) set.remove(fileId) else set.add(fileId)
+            state.copy(selectedFiles = set)
+        }
+    }
+
+    fun selectAllFilesInCategory(category: FileCategory) {
+        _uiState.update { state ->
+            val idsInCat = state.availableFiles.filter { it.category == category }.map { it.id }
+            val set = state.selectedFiles.toMutableSet()
+            if (set.containsAll(idsInCat)) {
+                set.removeAll(idsInCat.toSet())
+            } else {
+                set.addAll(idsInCat)
+            }
+            state.copy(selectedFiles = set)
+        }
+    }
+
+    fun clearSelectedFiles() {
+        _uiState.update { it.copy(selectedFiles = emptySet()) }
+    }
+
+    fun startTransferToPeer(peer: NearbyDevice) {
+        val selected = _uiState.value.availableFiles.filter { _uiState.value.selectedFiles.contains(it.id) }
+        val totalBytes = selected.sumOf { it.sizeBytes }
+
+        val record = TransferRecord(
+            id = UUID.randomUUID().toString(),
+            fileName = selected.firstOrNull()?.name ?: "Batch (${selected.size} files)",
+            fileSizeFormatted = StorageSmartManager.formatBytes(totalBytes),
+            totalBytes = totalBytes,
+            transferredBytes = 0L,
+            progress = 0f,
+            speedMbps = 0f,
+            isIncoming = false,
+            peerName = peer.name,
+            status = TransferStatus.HANDSHAKING
+        )
+
+        _uiState.update {
+            it.copy(
+                selectedPeer = peer,
+                activeTransferRecord = record,
+                currentScreen = ActiveScreen.ACTIVE_TRANSFER
+            )
+        }
+
+        transferJob?.cancel()
+        clientEngine?.startTransfer(
+            targetIp = peer.ipAddress,
+            targetPort = peer.port,
+            localDeviceName = _uiState.value.deviceName,
+            files = selected
+        )
+    }
+
+    fun togglePauseTransfer() {
+        _uiState.update { state ->
+            val cur = state.activeTransferRecord ?: return@update state
+            val next = if (cur.status == TransferStatus.PAUSED) TransferStatus.TRANSFERRING else TransferStatus.PAUSED
+            clientEngine?.setPaused(next == TransferStatus.PAUSED)
+            state.copy(activeTransferRecord = cur.copy(status = next))
+        }
+    }
+
+    fun cancelTransfer() {
+        clientEngine?.cancel()
+        _uiState.update { state ->
+            val cur = state.activeTransferRecord
+            state.copy(
+                activeTransferRecord = cur?.copy(status = TransferStatus.CANCELLED),
+                currentScreen = ActiveScreen.HOME
+            )
+        }
+    }
+
+    fun togglePcBridge(active: Boolean) {
+        if (active) {
+            pcBridgeServer?.start()
+        } else {
+            pcBridgeServer?.stop()
+        }
+        _uiState.update { it.copy(isBridgeServerActive = active) }
+    }
+
+    fun startGroupDrop() {
+        val selected = _uiState.value.availableFiles.filter { _uiState.value.selectedFiles.contains(it.id) }
+        val files = if (selected.isNotEmpty()) selected else _uiState.value.availableFiles.take(1)
+        val members = _uiState.value.groupSession.members
+
+        if (files.isEmpty() || members.isEmpty()) return
+
+        _uiState.update { state ->
+            state.copy(groupSession = state.groupSession.copy(isGroupDropActive = true))
+        }
+
+        viewModelScope.launch {
+            for (peer in members) {
+                clientEngine?.startTransfer(
+                    targetIp = peer.ipAddress,
+                    targetPort = 8829,
+                    localDeviceName = _uiState.value.deviceName,
+                    files = files
+                )
+            }
+            _uiState.update { state ->
+                state.copy(groupSession = state.groupSession.copy(isGroupDropActive = false))
+            }
+        }
+    }
+
+    fun addGroupPeer() {
+        val current = _uiState.value.groupSession.members
+        val newPeer = GroupPeer(
+            id = "peer_${System.currentTimeMillis() % 10000}",
+            name = if (current.isEmpty()) "Sarah's Pixel Tablet" else "Alex's Galaxy Tab",
+            model = "Android Direct Peer",
+            ipAddress = "192.168.49.${20 + current.size}"
+        )
+        _uiState.update { state ->
+            state.copy(
+                groupSession = state.groupSession.copy(
+                    members = state.groupSession.members + newPeer
+                )
+            )
+        }
+    }
+
+    fun simulateIncomingTransfer() {
+        viewModelScope.launch {
+            val context = getApplication<Application>()
+            val samplePayload = "AeroShare_Offline_P2P_Beam_Sample_Content_${System.currentTimeMillis()}".toByteArray()
+            val hash = FileIntegrityEngine.calculateSha256(samplePayload)
+            val transferDir = File(context.cacheDir, "transfers").apply { mkdirs() }
+            val receivedFile = File(transferDir, "AeroBeam_${System.currentTimeMillis() % 10000}.mp4")
+            receivedFile.writeBytes(samplePayload)
+
+            val record = TransferRecord(
+                id = UUID.randomUUID().toString(),
+                fileName = receivedFile.name,
+                fileSizeFormatted = StorageSmartManager.formatBytes(480_000_000L),
+                totalBytes = 480_000_000L,
+                transferredBytes = 480_000_000L,
+                progress = 1.0f,
+                speedMbps = 41.5f,
+                isIncoming = true,
+                peerName = "Nearby Peer (5GHz Turbo)",
+                status = TransferStatus.COMPLETED,
+                localFilePath = receivedFile.absolutePath,
+                sha256Checksum = hash
+            )
+
+            val receipt = VerifiedReceipt(
+                id = record.id,
+                sessionId = record.id,
+                peerDeviceName = record.peerName,
+                peerIpAddress = "192.168.49.12",
+                totalBytesTransferred = record.totalBytes,
+                totalFilesCount = 1,
+                durationSeconds = 12,
+                averageSpeedMbps = record.speedMbps,
+                fileReceiptItems = listOf(
+                    FileReceiptItem(
+                        fileName = record.fileName,
+                        fileSizeBytes = record.totalBytes,
+                        sha256Checksum = hash,
+                        verified = true
+                    )
+                ),
+                timestamp = System.currentTimeMillis()
+            )
+
+            addVerifiedReceipt(receipt)
+            onTransferRecordCompleted(record, isOutgoing = false)
+            _uiState.update {
+                it.copy(
+                    activeTransferRecord = record,
+                    currentScreen = ActiveScreen.ACTIVE_TRANSFER
+                )
+            }
+            refreshCacheUsage()
+        }
+    }
+
+    fun startPhoneMigration(totalBytes: Long = 0L) {
+        val allFiles = _uiState.value.availableFiles
+        if (allFiles.isEmpty()) {
+            _uiState.update { it.copy(storageCleanerMessage = "No files found on device to migrate.") }
+            return
+        }
+
+        _uiState.update { state ->
+            state.copy(
+                selectedFiles = allFiles.map { it.id }.toSet(),
+                currentScreen = ActiveScreen.DISCOVERING_PEERS
+            )
+        }
+    }
+
+    fun startPhoneMigration(selectedCategories: Set<FileCategory>) {
+        val migrationFiles = _uiState.value.availableFiles.filter { selectedCategories.contains(it.category) }
+        _uiState.update { state ->
+            state.copy(
+                selectedFiles = migrationFiles.map { it.id }.toSet(),
+                currentScreen = ActiveScreen.DISCOVERING_PEERS
+            )
+        }
+    }
+
+    fun approveSafeDrop(approved: Boolean) {
+        _uiState.update { it.copy(pendingSafeDropRequest = null) }
+    }
+
+    private fun addVerifiedReceipt(receipt: VerifiedReceipt) {
+        _uiState.update { it.copy(receipts = listOf(receipt) + it.receipts) }
+    }
+
+    private fun onTransferRecordCompleted(record: TransferRecord, isOutgoing: Boolean) {
+        _uiState.update { state ->
+            val updated = listOf(record) + state.historyRecords.filterNot { it.id == record.id }
+            val sent = if (isOutgoing) state.totalSentBytes + record.totalBytes else state.totalSentBytes
+            val recv = if (!isOutgoing) state.totalReceivedBytes + record.totalBytes else state.totalReceivedBytes
+            state.copy(
+                historyRecords = updated,
+                totalSentBytes = sent,
+                totalReceivedBytes = recv
+            )
+        }
+        refreshCacheUsage()
+    }
+
+    fun viewReceipt(receipt: VerifiedReceipt) {
+        _uiState.update { it.copy(selectedReceipt = receipt, currentScreen = ActiveScreen.RECEIPT_DETAIL) }
+    }
+
+    fun clearHistory() {
+        _uiState.update { it.copy(historyRecords = emptyList(), selectedHistoryRecordIds = emptySet()) }
+    }
+
+    fun toggleSelectHistoryRecord(id: String) {
+        _uiState.update { state ->
+            val set = state.selectedHistoryRecordIds.toMutableSet()
+            if (set.contains(id)) set.remove(id) else set.add(id)
+            state.copy(selectedHistoryRecordIds = set)
+        }
+    }
+
+    fun selectAllHistoryRecords() {
+        _uiState.update { state ->
+            val allIds = state.historyRecords.map { it.id }.toSet()
+            state.copy(selectedHistoryRecordIds = allIds)
+        }
+    }
+
+    fun clearSelectedHistoryRecords() {
+        _uiState.update { it.copy(selectedHistoryRecordIds = emptySet()) }
+    }
+
+    fun removeSelectedFromHistory() {
+        _uiState.update { state ->
+            val toRemove = state.selectedHistoryRecordIds
+            val updatedHistory = state.historyRecords.filterNot { toRemove.contains(it.id) }
+            state.copy(
+                historyRecords = updatedHistory,
+                selectedHistoryRecordIds = emptySet(),
+                storageCleanerMessage = "Removed ${toRemove.size} record(s) from history. Actual files remain safe on device."
+            )
+        }
+    }
+
+    fun deleteSelectedActualFiles() {
+        viewModelScope.launch {
+            val state = _uiState.value
+            val selectedIds = state.selectedHistoryRecordIds
+            val recordsToDelete = state.historyRecords.filter { selectedIds.contains(it.id) }
+
+            if (recordsToDelete.isEmpty()) return@launch
+
+            val batchResult = FileManagerAndCleanerEngine.deleteMultipleActualFiles(
+                context = getApplication(),
+                records = recordsToDelete
+            )
+
+            val successfulIds = batchResult.details.filter { it.wasDeletedFromDisk }.map { it.recordId }.toSet()
+            val deletedNames = batchResult.details.filter { it.wasDeletedFromDisk }.map { it.fileName }.toSet()
+
+            _uiState.update { current ->
+                val updatedHistory = current.historyRecords.map { record ->
+                    if (successfulIds.contains(record.id)) record.copy(isLocalFileDeleted = true) else record
+                }
+                val updatedCatalog = current.availableFiles.filterNot { deletedNames.contains(it.name) }
+                current.copy(
+                    historyRecords = updatedHistory,
+                    availableFiles = updatedCatalog,
+                    selectedHistoryRecordIds = emptySet(),
+                    storageCleanerMessage = if (batchResult.successfullyDeletedCount > 0) {
+                        "Permanently deleted ${batchResult.successfullyDeletedCount} file(s) from device storage. Freed ${batchResult.formattedBytesFreed}."
+                    } else {
+                        "Could not delete actual files (files may not exist or require system authorization)."
+                    }
+                )
+            }
+            refreshMediaStore()
+            refreshCacheUsage()
+        }
+    }
+
+    fun refreshCacheUsage() {
+        viewModelScope.launch {
+            val report = FileManagerAndCleanerEngine.measureCacheUsage(getApplication())
+            _uiState.update { it.copy(cacheReport = report) }
+        }
+    }
+
+    fun cleanAppTemporaryCache(cleanAll: Boolean = true) {
+        viewModelScope.launch {
+            val activeName = _uiState.value.activeTransferRecord?.fileName
+            val activeSet = if (activeName != null) setOf(activeName) else emptySet()
+
+            val result = FileManagerAndCleanerEngine.cleanAppTemporaryCache(
+                context = getApplication(),
+                activeTransferNames = activeSet,
+                cleanAllCache = cleanAll
+            )
+
+            val report = FileManagerAndCleanerEngine.measureCacheUsage(getApplication())
+            _uiState.update {
+                it.copy(
+                    cacheReport = report,
+                    storageCleanerMessage = result.message
+                )
+            }
+        }
+    }
+
+    fun clearStorageCleanerMessage() {
+        _uiState.update { it.copy(storageCleanerMessage = null) }
+    }
+
+    fun updateDeviceName(newName: String) {
+        _uiState.update { it.copy(deviceName = newName) }
+    }
+
+    fun toggle5Ghz(enabled: Boolean) {
+        _uiState.update { it.copy(is5GhzPreferred = enabled) }
+        updateAutopilot()
+    }
+
+    fun toggleEncryption(enabled: Boolean) {
+        _uiState.update { it.copy(isEncryptionEnabled = enabled) }
+    }
+
+    fun toggleAutoDisconnect(enabled: Boolean) {
+        _uiState.update { it.copy(autoDisconnect = enabled) }
+    }
+
+    fun toggleLiteMode(enabled: Boolean) {
+        _uiState.update { it.copy(isLiteMode = enabled) }
+    }
+
+    fun togglePinRequired(enabled: Boolean) {
+        _uiState.update { it.copy(isPinRequired = enabled) }
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        serverEngine?.stop()
+        pcBridgeServer?.stop()
+        clientEngine?.cancel()
+    }
+}

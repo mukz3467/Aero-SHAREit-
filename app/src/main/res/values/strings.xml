@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">AeroShare</string>
+    <string name="app_tagline">Fast, Offline P2P File Beam</string>
+    <string name="action_send">SEND</string>
+    <string name="action_send_desc">Pick files to beam</string>
+    <string name="action_receive">RECEIVE</string>
+    <string name="action_receive_desc">Ready to accept</string>
+    <string name="action_qr_connect">Scan QR</string>
+    <string name="action_web_share">WebShare</string>
+    <string name="action_group_share">Group Share</string>
+    <string name="action_phone_clone">Clone Phone</string>
+    <string name="cat_photos">Photos</string>
+    <string name="cat_videos">Videos</string>
+    <string name="cat_docs">Documents</string>
+    <string name="cat_music">Music</string>
+    <string name="cat_apps">Apps</string>
+    <string name="cat_archives">Archives</string>
+</resources>
