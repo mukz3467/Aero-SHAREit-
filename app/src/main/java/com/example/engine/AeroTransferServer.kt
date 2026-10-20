@@ -2,6 +2,7 @@ package com.example.engine
 
 import android.content.Context
 import android.os.Environment
+import android.os.StatFs
 import com.example.model.FileReceiptItem
 import com.example.model.TransferRecord
 import com.example.model.TransferStatus
@@ -114,13 +115,24 @@ class AeroTransferServer(
             var transferredSoFar = 0L
             val startTime = System.currentTimeMillis()
 
-            val tempDir = File(context.cacheDir, "transfers").apply { mkdirs() }
             val receivedDir = (context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
                 ?: File(context.filesDir, "received")).apply {
                 if (!exists() && !mkdirs()) throw IOException("Cannot create received-files folder.")
             }
             if (!receivedDir.isDirectory || !receivedDir.canWrite()) {
                 throw IOException("Received-files folder is not writable.")
+            }
+            val freeBytes = try {
+                StatFs(receivedDir.absolutePath).availableBytes
+            } catch (_: Exception) {
+                0L
+            }
+            val safetyMargin = 100L * 1024 * 1024
+            if (totalBytes > Long.MAX_VALUE - safetyMargin || freeBytes < totalBytes + safetyMargin) {
+                output.writeBoolean(false)
+                output.flush()
+                onError("Not enough free storage to safely receive this batch.")
+                return
             }
 
             var declaredBytes = 0L
@@ -135,8 +147,9 @@ class AeroTransferServer(
                 }
 
                 declaredBytes += fileSize
-                val tempFile = File(tempDir, ".aero_${UUID.randomUUID()}.part").canonicalFile
-                if (tempFile.parentFile != tempDir.canonicalFile) {
+                // Stage in the destination directory so the final rename stays on the same filesystem.
+                val tempFile = File(receivedDir, ".aero_receive_${UUID.randomUUID()}.part").canonicalFile
+                if (tempFile.parentFile != receivedDir.canonicalFile) {
                     output.writeBoolean(false)
                     output.flush()
                     return
@@ -179,25 +192,17 @@ class AeroTransferServer(
                 val checksumMatches = complete && FileIntegrityEngine.verifyChecksum(expectedSha, actualSha)
                 val totalMatches = i != filesCount - 1 || declaredBytes == totalBytes
                 val finalFile = AeroSecuritySanitizer.resolveUniqueFile(receivedDir, fileName)
-                val commitTemp = File(receivedDir, ".aero_receive_${UUID.randomUUID()}.part")
                 val isVerified = if (checksumMatches && totalMatches) {
                     try {
-                        tempFile.copyTo(commitTemp, overwrite = false, bufferSize = AeroTransferProtocol.TURBO_CHUNK_SIZE)
-                        val savedSha = FileIntegrityEngine.calculateFileSha256(commitTemp)
-                        if (FileIntegrityEngine.verifyChecksum(expectedSha, savedSha) && commitTemp.renameTo(finalFile)) {
-                            true
-                        } else {
-                            commitTemp.delete()
-                            false
-                        }
+                        val stagedSha = FileIntegrityEngine.calculateFileSha256(tempFile)
+                        FileIntegrityEngine.verifyChecksum(expectedSha, stagedSha) && tempFile.renameTo(finalFile)
                     } catch (_: Exception) {
-                        commitTemp.delete()
                         false
                     }
                 } else {
                     false
                 }
-                tempFile.delete()
+                if (!isVerified) tempFile.delete()
 
                 receiptItems.add(
                     FileReceiptItem(
