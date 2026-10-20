@@ -69,7 +69,7 @@ data class TransferUiState(
     val isSafeDropEnabled: Boolean = true,
     val isBridgeServerActive: Boolean = false,
     val bridgeAuthToken: String = UUID.randomUUID().toString().replace("-", ""),
-    val bridgeUrl: String = "http://192.168.49.1:8844?token=$bridgeAuthToken",
+    val bridgeUrl: String = "",
     val pendingSafeDropRequest: SafeDropRequest? = null,
     val connectedPcClients: Int = 0,
     val autopilotRecommendation: String = "Local-network transfer • SHA-256 integrity check",
@@ -347,10 +347,30 @@ class TransferViewModel(application: Application) : AndroidViewModel(application
     fun togglePcBridge(active: Boolean) {
         if (active) {
             pcBridgeServer?.start()
+            val address = findLocalIpv4Address()
+            _uiState.update { state ->
+                state.copy(
+                    isBridgeServerActive = true,
+                    bridgeUrl = address?.let { "http://$it:${AeroTransferProtocol.PC_BRIDGE_PORT}?token=${state.bridgeAuthToken}" }.orEmpty(),
+                    storageCleanerMessage = if (address == null) {
+                        "Connect this phone and your PC to the same Wi-Fi network, then try the bridge again."
+                    } else state.storageCleanerMessage
+                )
+            }
         } else {
             pcBridgeServer?.stop()
+            _uiState.update { it.copy(isBridgeServerActive = false, bridgeUrl = "") }
         }
-        _uiState.update { it.copy(isBridgeServerActive = active) }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun findLocalIpv4Address(): String? {
+        val wifiManager = getApplication<Application>().applicationContext
+            .getSystemService(android.content.Context.WIFI_SERVICE) as? android.net.wifi.WifiManager
+            ?: return null
+        val ip = wifiManager.connectionInfo.ipAddress
+        if (ip == 0) return null
+        return "${ip and 0xff}.${(ip shr 8) and 0xff}.${(ip shr 16) and 0xff}.${(ip shr 24) and 0xff}"
     }
 
     fun startGroupDrop() {
