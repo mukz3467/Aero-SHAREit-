@@ -6,7 +6,8 @@ data class FileReceiptItem(
     val fileName: String,
     val fileSizeBytes: Long,
     val sha256Checksum: String,
-    val verified: Boolean = true
+    val verified: Boolean = true,
+    val localFilePath: String? = null
 )
 
 data class VerifiedReceipt(
