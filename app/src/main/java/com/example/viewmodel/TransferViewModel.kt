@@ -120,7 +120,16 @@ class TransferViewModel(application: Application) : AndroidViewModel(application
                     callback(true)
                 } else {
                     _uiState.update { it.copy(pendingSafeDropRequest = request) }
-                    pendingSafeDropApproval = callback
+                    pendingSafeDropApproval = { accepted ->
+                        _uiState.update { state ->
+                            if (state.pendingSafeDropRequest?.requestId == request.requestId) {
+                                state.copy(pendingSafeDropRequest = null)
+                            } else {
+                                state
+                            }
+                        }
+                        callback(accepted)
+                    }
                 }
             },
             onProgressUpdate = { record ->
