@@ -19,7 +19,7 @@ data class VerifiedReceipt(
     val totalFilesCount: Int = 1,
     val durationSeconds: Int = 0,
     val averageSpeedMbps: Float = 0f,
-    val integrityStatus: String = "Cryptographically Verified (SHA-256)",
+    val integrityStatus: String = "SHA-256 checksum verified; transfer is not encrypted",
     val isOutgoing: Boolean = false,
     val fileReceiptItems: List<FileReceiptItem> = emptyList(),
     val timestamp: Long = System.currentTimeMillis()
