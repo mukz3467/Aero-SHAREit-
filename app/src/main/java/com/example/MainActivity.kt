@@ -135,8 +135,9 @@ private fun AeroAppContent(
         )
 
         ActiveScreen.PHONE_MIGRATION -> PhoneMigrationScreen(
+            uiState = state,
             onBack = { viewModel.navigateTo(ActiveScreen.HOME) },
-            onStartMigration = { viewModel.startPhoneMigration() }
+            onStartMigration = { categories -> viewModel.startPhoneMigration(categories) }
         )
 
         ActiveScreen.RECEIPT_DETAIL -> {
