@@ -162,8 +162,7 @@ class TransferViewModel(application: Application) : AndroidViewModel(application
                         storageCleanerMessage = message
                     )
                 }
-            },
-            liteModeProvider = { _uiState.value.isLiteMode }
+            }
         )
 
         clientEngine = AeroTransferClient(
@@ -200,7 +199,8 @@ class TransferViewModel(application: Application) : AndroidViewModel(application
                     val cur = state.activeTransferRecord
                     state.copy(activeTransferRecord = cur?.copy(status = TransferStatus.FAILED))
                 }
-            }
+            },
+            liteModeProvider = { _uiState.value.isLiteMode }
         )
 
         pcBridgeServer = PhoneToPcBridgeServer(
