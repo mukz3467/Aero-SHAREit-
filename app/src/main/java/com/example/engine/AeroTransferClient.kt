@@ -181,21 +181,29 @@ class AeroTransferClient(
                                 verified = verifiedByPeer
                             )
                         )
+                        if (!verifiedByPeer) {
+                            throw IOException("Receiver could not verify ${f.name}; transfer is not complete.")
+                        }
                     }
                 } finally {
                     stagedFiles.forEach { (_, staged) -> staged.delete() }
                 }
 
+                if (isCancelled) throw IOException("Transfer cancelled.")
+                if (receiptItems.size != stagedFiles.size || receiptItems.any { !it.verified }) {
+                    throw IOException("Transfer ended before every file was verified.")
+                }
+
                 val totalSec = Math.max(1, ((System.currentTimeMillis() - startTime) / 1000).toInt())
-                val avgSpeed = ((totalBytes * 8f) / (totalSec * 1024 * 1024)).toFloat()
+                val avgSpeed = ((transferredSoFar * 8f) / (totalSec * 1024 * 1024)).toFloat()
 
                 val receipt = VerifiedReceipt(
                     id = sessionId,
                     sessionId = sessionId,
                     peerDeviceName = targetIp,
                     peerIpAddress = targetIp,
-                    totalBytesTransferred = totalBytes,
-                    totalFilesCount = files.size,
+                    totalBytesTransferred = transferredSoFar,
+                    totalFilesCount = receiptItems.size,
                     durationSeconds = totalSec,
                     averageSpeedMbps = avgSpeed,
                     isOutgoing = true,
