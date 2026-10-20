@@ -33,8 +33,16 @@ jobs:
         with:
           gradle-version: "8.14"
 
-      - name: Compile debug Kotlin
-        run: gradle :app:compileDebugKotlin
+      - name: Assemble debug APK
+        run: gradle :app:assembleDebug
 
       - name: Run unit tests
         run: gradle :app:testDebugUnitTest
+
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: aero-shareit-debug-apk
+          path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 7
