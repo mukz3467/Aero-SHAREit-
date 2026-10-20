@@ -182,7 +182,7 @@ fun PhoneToPcScreen(
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Icon(imageVector = Icons.Default.Computer, contentDescription = null, tint = AeroTextSecondary, modifier = Modifier.size(56.dp))
                             Spacer(modifier = Modifier.height(12.dp))
-                            Text("Turn on WebShare above to transfer files with your computer.", color = AeroTextSecondary, fontSize = 13.sp)
+                            Text("This bridge currently confirms a local connection only. File upload and download are not implemented yet.", color = AeroTextSecondary, fontSize = 13.sp)
                         }
                     }
                 }
