@@ -120,6 +120,7 @@ class TransferViewModel(application: Application) : AndroidViewModel(application
             },
             onTransferFinished = { receipt ->
                 addVerifiedReceipt(receipt)
+                val allFilesVerified = receipt.fileReceiptItems.isNotEmpty() && receipt.fileReceiptItems.all { it.verified }
                 val finalRecord = TransferRecord(
                     id = receipt.sessionId,
                     fileName = receipt.fileReceiptItems.firstOrNull()?.fileName ?: "Received_Batch",
@@ -130,7 +131,7 @@ class TransferViewModel(application: Application) : AndroidViewModel(application
                     speedMbps = receipt.averageSpeedMbps,
                     isIncoming = true,
                     peerName = receipt.peerDeviceName,
-                    status = TransferStatus.COMPLETED,
+                    status = if (allFilesVerified) TransferStatus.COMPLETED else TransferStatus.FAILED,
                     localFilePath = "${context.cacheDir.path}/transfers/${receipt.fileReceiptItems.firstOrNull()?.fileName}",
                     sha256Checksum = receipt.fileReceiptItems.firstOrNull()?.sha256Checksum
                 )
