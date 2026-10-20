@@ -24,23 +24,16 @@ object TransferAutopilot {
         val (batteryPct, isCharging) = getBatteryStatus(context)
         val shouldLite = batteryPct < 20 && !isCharging
 
-        val band = if (shouldLite) {
-            "2.4GHz Power-Saving Mode"
-        } else {
-            "5GHz Turbo Band (Ultra Low Latency)"
-        }
+        val band = "Local Wi-Fi (band managed by Android)"
 
         val mode = when {
-            isPcPeer -> "Phone-to-PC WebShare Bridge (Port 8844)"
-            isGroupSession -> "Live Group Room Multi-Cast"
-            else -> "Direct Offline P2P Stream"
+            isPcPeer -> "PC bridge preview (file transfer pending)"
+            isGroupSession -> "Sequential GroupDrop over local Wi-Fi"
+            else -> "Local TCP transfer with SHA-256 verification"
         }
 
-        val chunkSizeKb = when {
-            shouldLite -> 32
-            batchBytes > 500_000_000L -> 128
-            else -> 64
-        }
+        // The current client uses a fixed 64 KiB buffer; recommendations must reflect reality.
+        val chunkSizeKb = 64
 
         val headline = when {
             shouldLite -> "Battery-Smart Lite Mode Recommended (${batteryPct}%)"
@@ -49,9 +42,9 @@ object TransferAutopilot {
         }
 
         val details = when {
-            shouldLite -> "Device battery is below 20%. Background beacon animations and high-power radio bursts are throttled."
-            batchBytes > 500_000_000L -> "Using 128 KB chunk streams with real-time SHA-256 verification and offset resume protection."
-            else -> "Zero cloud routing, 5GHz hardware link, and direct peer socket acceleration active."
+            shouldLite -> "Battery is below 20%. Consider Lite mode; automatic radio or animation throttling is not integrated yet."
+            batchBytes > 500_000_000L -> "Large batch detected. Outgoing files are staged and streamed in 64 KiB chunks to reduce RAM use."
+            else -> "Peers must share the same local Wi-Fi network. File contents are not encrypted yet; SHA-256 checks verify received files."
         }
 
         return AutopilotRecommendation(
