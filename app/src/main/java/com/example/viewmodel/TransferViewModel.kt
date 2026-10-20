@@ -188,12 +188,8 @@ class TransferViewModel(application: Application) : AndroidViewModel(application
     }
 
     private fun initNearbyDevices() {
-        val peers = listOf(
-            NearbyDevice("d1", "Sarah's Galaxy S24 Ultra", "192.168.49.20", 8829, is5Ghz = true, signalStrength = 98, deviceModel = "Samsung SM-S928B"),
-            NearbyDevice("d2", "Alex's Pixel 9 Pro", "192.168.49.21", 8829, is5Ghz = true, signalStrength = 92, deviceModel = "Google Pixel 9 Pro"),
-            NearbyDevice("d3", "Living Room Android TV", "192.168.49.22", 8829, is5Ghz = false, signalStrength = 78, deviceModel = "Google TV 4K")
-        )
-        _uiState.update { it.copy(nearbyDevices = peers) }
+        // Never display fabricated peers as if they were real devices.
+        _uiState.update { it.copy(nearbyDevices = emptyList()) }
     }
 
     private fun updateAutopilot() {
@@ -347,17 +343,19 @@ class TransferViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun addGroupPeer() {
-        val current = _uiState.value.groupSession.members
+        val state = _uiState.value
+        val existingIds = state.groupSession.members.map { it.id }.toSet()
+        val peer = state.nearbyDevices.firstOrNull { it.id !in existingIds } ?: return
         val newPeer = GroupPeer(
-            id = "peer_${System.currentTimeMillis() % 10000}",
-            name = if (current.isEmpty()) "Sarah's Pixel Tablet" else "Alex's Galaxy Tab",
-            model = "Android Direct Peer",
-            ipAddress = "192.168.49.${20 + current.size}"
+            id = peer.id,
+            name = peer.name,
+            model = peer.deviceModel,
+            ipAddress = peer.ipAddress
         )
-        _uiState.update { state ->
-            state.copy(
-                groupSession = state.groupSession.copy(
-                    members = state.groupSession.members + newPeer
+        _uiState.update { current ->
+            current.copy(
+                groupSession = current.groupSession.copy(
+                    members = current.groupSession.members + newPeer
                 )
             )
         }
