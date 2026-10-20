@@ -92,6 +92,7 @@ class TransferViewModel(application: Application) : AndroidViewModel(application
     private var serverEngine: AeroTransferServer? = null
     private var clientEngine: AeroTransferClient? = null
     private var pcBridgeServer: PhoneToPcBridgeServer? = null
+    @Volatile private var pendingSafeDropApproval: ((Boolean) -> Unit)? = null
 
     init {
         initTransferEngines()
@@ -111,7 +112,7 @@ class TransferViewModel(application: Application) : AndroidViewModel(application
                 if (!_uiState.value.isSafeDropEnabled || SafeDropManager.isDeviceTrusted(request.peerName)) {
                     callback(true)
                 } else {
-                    callback(true)
+                    pendingSafeDropApproval = callback
                 }
             },
             onProgressUpdate = { record ->
@@ -444,7 +445,10 @@ class TransferViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun approveSafeDrop(approved: Boolean) {
+        val approval = pendingSafeDropApproval
+        pendingSafeDropApproval = null
         _uiState.update { it.copy(pendingSafeDropRequest = null) }
+        approval?.invoke(approved)
     }
 
     private fun addVerifiedReceipt(receipt: VerifiedReceipt) {
