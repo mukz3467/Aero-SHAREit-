@@ -85,9 +85,19 @@ class AeroTransferServer(
             val magic = input.readInt()
             if (magic != AeroTransferProtocol.MAGIC_HEADER) return
 
+            val protocolVersion = input.readInt()
+            if (protocolVersion != AeroTransferProtocol.PROTOCOL_VERSION) return
             val clientDeviceName = input.readUTF()
             val filesCount = input.readInt()
             val totalBytes = input.readLong()
+            val clientKeyLength = input.readInt()
+            if (clientKeyLength !in 1..4096) return
+            val clientPublicKeyBytes = ByteArray(clientKeyLength)
+            input.readFully(clientPublicKeyBytes)
+            val saltLength = input.readInt()
+            if (saltLength != 32) return
+            val sessionSalt = ByteArray(saltLength)
+            input.readFully(sessionSalt)
             if (filesCount !in 1..1000 || totalBytes < 0L || totalBytes > 100L * 1024 * 1024 * 1024) {
                 output.writeBoolean(false)
                 output.flush()
@@ -114,20 +124,21 @@ class AeroTransferServer(
                 false
             }
 
-            output.writeBoolean(isAccepted)
-            output.flush()
-            if (!isAccepted) return
-
-            val receiptItems = mutableListOf<FileReceiptItem>()
-            var transferredSoFar = 0L
-            val startTime = System.currentTimeMillis()
+            if (!isAccepted) {
+                output.writeBoolean(false)
+                output.flush()
+                return
+            }
 
             val receivedDir = (context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
                 ?: File(context.filesDir, "received")).apply {
                 if (!exists() && !mkdirs()) throw IOException("Cannot create received-files folder.")
             }
             if (!receivedDir.isDirectory || !receivedDir.canWrite()) {
-                throw IOException("Received-files folder is not writable.")
+                output.writeBoolean(false)
+                output.flush()
+                onError("Received-files folder is not writable.")
+                return
             }
             val freeBytes = try {
                 StatFs(receivedDir.absolutePath).availableBytes
@@ -141,6 +152,22 @@ class AeroTransferServer(
                 onError("Not enough free storage to safely receive this batch.")
                 return
             }
+
+            val serverKeyPair = AeroCryptoEngine.generateEcdhKeyPair()
+            val serverPublicKey = serverKeyPair.public.encoded
+            output.writeBoolean(true)
+            output.writeInt(serverPublicKey.size)
+            output.write(serverPublicKey)
+            output.flush()
+            val clientPublicKey = KeyFactory.getInstance("EC")
+                .generatePublic(X509EncodedKeySpec(clientPublicKeyBytes))
+            val sharedSecret = AeroCryptoEngine.computeSharedSecret(serverKeyPair.private, clientPublicKey)
+            val sessionKey = AeroCryptoEngine.deriveAesKey(sharedSecret, sessionSalt, "AeroDataTransfer-v2")
+            sharedSecret.fill(0)
+
+            val receiptItems = mutableListOf<FileReceiptItem>()
+            var transferredSoFar = 0L
+            val startTime = System.currentTimeMillis()
 
             var declaredBytes = 0L
             for (i in 0 until filesCount) {
@@ -165,14 +192,24 @@ class AeroTransferServer(
                 var fileTransferred = 0L
                 try {
                     tempFile.outputStream().use { fos ->
-                        val buffer = ByteArray(AeroTransferProtocol.TURBO_CHUNK_SIZE)
                         while (fileTransferred < fileSize) {
-                            val toRead = Math.min(buffer.size.toLong(), fileSize - fileTransferred).toInt()
-                            val bytesRead = input.read(buffer, 0, toRead)
-                            if (bytesRead == -1) break
-                            fos.write(buffer, 0, bytesRead)
-                            fileTransferred += bytesRead
-                            transferredSoFar += bytesRead
+                            val plainLength = input.readInt()
+                            if (plainLength !in 1..AeroTransferProtocol.TURBO_CHUNK_SIZE ||
+                                plainLength.toLong() > fileSize - fileTransferred) {
+                                throw IOException("Invalid encrypted chunk length.")
+                            }
+                            val encryptedLength = input.readInt()
+                            if (encryptedLength != plainLength + 28) {
+                                throw IOException("Invalid encrypted payload length.")
+                            }
+                            val encrypted = ByteArray(encryptedLength)
+                            input.readFully(encrypted)
+                            val aad = "file=$i;offset=$fileTransferred".toByteArray(Charsets.UTF_8)
+                            val plaintext = AeroCryptoEngine.decryptChunk(encrypted, sessionKey, aad)
+                            if (plaintext.size != plainLength) throw IOException("Decrypted chunk length mismatch.")
+                            fos.write(plaintext)
+                            fileTransferred += plaintext.size
+                            transferredSoFar += plaintext.size
 
                             val elapsedSec = Math.max(0.1, (System.currentTimeMillis() - startTime) / 1000.0)
                             val speed = ((transferredSoFar * 8f) / (elapsedSec * 1024 * 1024)).toFloat()
