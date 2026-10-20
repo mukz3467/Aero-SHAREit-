@@ -15,6 +15,7 @@ import java.io.BufferedOutputStream
 import java.io.DataInputStream
 import java.io.DataOutputStream
 import java.io.File
+import java.io.IOException
 import java.net.InetSocketAddress
 import java.net.Socket
 import java.util.UUID
@@ -89,13 +90,10 @@ class AeroTransferClient(
                 for (f in files) {
                     if (isCancelled) break
 
-                    val stream = if (f.uri != null) {
-                        context.contentResolver.openInputStream(f.uri)
-                    } else {
-                        null
-                    }
-
-                    val sampleBytes = stream?.readBytes() ?: "AeroShare_Offline_Payload_${f.name}".toByteArray()
+                    val uri = f.uri ?: throw IOException("Cannot open the selected file: ${f.name}")
+                    val stream = context.contentResolver.openInputStream(uri)
+                        ?: throw IOException("Cannot read the selected file: ${f.name}")
+                    val sampleBytes = stream.use { it.readBytes() }
                     val checksum = FileIntegrityEngine.calculateSha256(sampleBytes)
 
                     output.writeUTF(f.name)
