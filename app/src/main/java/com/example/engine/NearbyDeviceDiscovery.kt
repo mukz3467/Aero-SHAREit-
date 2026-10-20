@@ -56,6 +56,7 @@ class NearbyDeviceDiscovery(
 
             socket.use { udp ->
                 var lastBroadcast = 0L
+                var lastPublishedSignature: String? = null
                 val receiveBuffer = ByteArray(2048)
                 while (isActive && !stopped && !udp.isClosed) {
                     val now = System.currentTimeMillis()
@@ -109,9 +110,12 @@ class NearbyDeviceDiscovery(
                     }
 
                     val cutoff = System.currentTimeMillis() - PEER_TTL_MS
-                    val removed = peers.entries.removeAll { it.value.second < cutoff }
-                    if (removed || peers.isNotEmpty()) {
-                        onDevicesChanged(peers.values.map { it.first }.sortedBy { it.name.lowercase() })
+                    peers.entries.removeAll { it.value.second < cutoff }
+                    val snapshot = peers.values.map { it.first }.sortedBy { it.name.lowercase() }
+                    val signature = snapshot.joinToString(";") { "${it.id}|${it.ipAddress}|${it.port}|${it.name}" }
+                    if (signature != lastPublishedSignature) {
+                        lastPublishedSignature = signature
+                        onDevicesChanged(snapshot)
                     }
                 }
             }
