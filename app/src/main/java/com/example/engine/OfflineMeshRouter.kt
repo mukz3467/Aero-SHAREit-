@@ -116,8 +116,10 @@ class OfflineMeshRouter(
 
     fun prepareRelay(envelope: RelayEnvelope, nowMillis: Long = System.currentTimeMillis()): RelayEnvelope? {
         if (envelope.destinationId == nodeId || envelope.hopLimit <= 1) return null
-        if (!markMessageSeen(envelope.messageId, nowMillis)) return null
+        // Do not consume the deduplication slot until a viable route exists;
+        // otherwise a transient route outage permanently blocks a retry.
         if (routeFor(envelope.destinationId, nowMillis) == null) return null
+        if (!markMessageSeen(envelope.messageId, nowMillis)) return null
         return envelope.copy(hopLimit = envelope.hopLimit - 1)
     }
 
