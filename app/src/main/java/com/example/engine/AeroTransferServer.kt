@@ -55,6 +55,8 @@ class AeroTransferServer(
                         connectionSemaphore.acquire()
                         try {
                             handleClient(socket)
+                        } catch (ex: Exception) {
+                            onError("Incoming transfer failed: ${ex.message ?: "connection closed"}")
                         } finally {
                             connectionSemaphore.release()
                         }
