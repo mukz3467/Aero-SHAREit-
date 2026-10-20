@@ -194,7 +194,12 @@ class AeroTransferClient(
                         output.writeUTF(checksum)
                         output.flush()
 
-                        var fileOffset = 0L
+                        val resumeOffset = input.readLong()
+                        if (resumeOffset < 0L || resumeOffset > fileSize) {
+                            throw IOException("Invalid resume position.")
+                        }
+                        var fileOffset = resumeOffset
+                        transferredSoFar += resumeOffset
                         staged.inputStream().buffered(transferChunkSize).use { fileInput ->
                             while (true) {
                                 while (isPaused && !isCancelled) {
