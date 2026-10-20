@@ -18,14 +18,14 @@ object StorageSmartManager {
             val stat = StatFs(Environment.getDataDirectory().path)
             stat.availableBytes
         } catch (_: Exception) {
-            50L * 1024 * 1024 * 1024 // 50 GB fallback
+            0L // Unknown capacity must fail closed rather than assume 50 GB is free
         }
     }
 
     fun checkStorageForTransfer(requiredBytes: Long): StorageCheckResult {
         val available = getAvailableInternalBytes()
         // Require 100MB buffer headroom
-        val safeThreshold = requiredBytes + (100 * 1024 * 1024)
+        val safeThreshold = if (requiredBytes < 0L || requiredBytes > Long.MAX_VALUE - (100L * 1024 * 1024)) Long.MAX_VALUE else requiredBytes + (100L * 1024 * 1024)
         return StorageCheckResult(
             availableBytes = available,
             requiredBytes = requiredBytes,

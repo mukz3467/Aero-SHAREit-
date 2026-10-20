@@ -100,7 +100,7 @@ fun DeviceConnectScreen(
                         color = AeroTextPrimary
                     )
                     Text(
-                        text = if (isReceiveMode) "Beacon broadcasting on 5GHz" else "Scanning nearby Wi-Fi Direct peers",
+                        text = if (isReceiveMode) "Listening for incoming transfers" else "Scanning local Wi-Fi peers",
                         style = MaterialTheme.typography.labelSmall,
                         color = AeroSecondaryGreen
                     )
@@ -109,8 +109,7 @@ fun DeviceConnectScreen(
 
             if (isReceiveMode) {
                 ReceiveBeaconView(
-                    deviceName = uiState.deviceName,
-                    onSimulateIncoming = onSimulateReceive
+                    deviceName = uiState.deviceName
                 )
             } else {
                 SendDiscoveryView(
@@ -124,8 +123,7 @@ fun DeviceConnectScreen(
 
 @Composable
 private fun ReceiveBeaconView(
-    deviceName: String,
-    onSimulateIncoming: () -> Unit
+    deviceName: String
 ) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -134,25 +132,17 @@ private fun ReceiveBeaconView(
     ) {
         item {
             Text(
-                text = "Show QR to Sender",
+                text = "Ready to Receive",
                 style = MaterialTheme.typography.headlineMedium,
                 fontWeight = FontWeight.ExtraBold,
                 color = AeroTextPrimary
             )
             Spacer(modifier = Modifier.height(4.dp))
             Text(
-                text = "The sender can scan this code to connect instantly without passwords",
+                text = "Keep both devices on the same local Wi-Fi network. After approval and SHA-256 verification, received files are saved in Aero SHAREit's app-specific Downloads folder.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = AeroTextSecondary,
                 fontSize = 13.sp
-            )
-        }
-
-        item {
-            Spacer(modifier = Modifier.height(16.dp))
-            StylizedQrMatrix(
-                modifier = Modifier.fillMaxWidth(),
-                ipText = "192.168.49.1:8829"
             )
         }
 
@@ -175,7 +165,7 @@ private fun ReceiveBeaconView(
                         )
                         Spacer(modifier = Modifier.width(10.dp))
                         Text(
-                            text = "Hotspot Beacon Active",
+                            text = "Local Receiver Active",
                             fontWeight = FontWeight.Bold,
                             fontSize = 14.sp,
                             color = AeroTextPrimary
@@ -183,28 +173,12 @@ private fun ReceiveBeaconView(
                     }
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(text = "Device: $deviceName", fontSize = 12.sp, color = AeroTextSecondary)
-                    Text(text = "Network: DIRECT-AeroShare-8829", fontSize = 12.sp, color = AeroTextSecondary)
-                    Text(text = "Security: Ephemeral ECDH + AES-256-GCM (SAS Verified)", fontSize = 12.sp, color = AeroSecondaryGreen, fontWeight = FontWeight.SemiBold)
+                    Text(text = "Network: Same local Wi-Fi • TCP port 8829", fontSize = 12.sp, color = AeroTextSecondary)
+                    Text(text = "Safety: Incoming approval + SHA-256 file verification", fontSize = 12.sp, color = AeroSecondaryGreen, fontWeight = FontWeight.SemiBold)
                 }
             }
         }
 
-        item {
-            Spacer(modifier = Modifier.height(12.dp))
-            Button(
-                onClick = onSimulateIncoming,
-                colors = ButtonDefaults.buttonColors(containerColor = AeroEmerald, contentColor = AeroBackground),
-                shape = RoundedCornerShape(14.dp),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(52.dp)
-                    .testTag("simulate_receive_button")
-            ) {
-                Icon(imageVector = Icons.Default.Bolt, contentDescription = "Test Beam", modifier = Modifier.size(20.dp))
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(text = "Accept Test Beam (480 MB)", fontWeight = FontWeight.Bold, fontSize = 15.sp)
-            }
-        }
     }
 }
 
@@ -273,7 +247,7 @@ private fun SendDiscoveryView(
                     Spacer(modifier = Modifier.width(12.dp))
                     Column(modifier = Modifier.weight(1f)) {
                         Text(text = peer.name, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = AeroTextPrimary)
-                        Text(text = "${peer.deviceModel} • 5GHz Turbo Link", fontSize = 11.sp, color = AeroSecondaryGreen)
+                        Text(text = "${peer.deviceModel} • Local TCP ${peer.port}", fontSize = 11.sp, color = AeroSecondaryGreen)
                     }
                     Button(
                         onClick = { onSelectPeer(peer) },

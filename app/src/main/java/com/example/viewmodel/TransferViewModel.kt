@@ -5,12 +5,13 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.engine.AeroTransferClient
 import com.example.engine.AeroTransferServer
+import com.example.engine.AeroTransferProtocol
 import com.example.engine.CacheUsageReport
 import com.example.engine.FileIntegrityEngine
 import com.example.engine.FileManagerAndCleanerEngine
 import com.example.engine.LocalMediaStoreExplorer
+import com.example.engine.NearbyDeviceDiscovery
 import com.example.engine.PhoneToPcBridgeServer
-import com.example.engine.SafeDropManager
 import com.example.engine.SafeDropRequest
 import com.example.engine.StorageSmartManager
 import com.example.engine.TransferAutopilot
@@ -23,6 +24,7 @@ import com.example.model.NearbyDevice
 import com.example.model.TransferRecord
 import com.example.model.TransferStatus
 import com.example.model.VerifiedReceipt
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -48,7 +50,7 @@ enum class ActiveScreen {
 
 data class TransferUiState(
     val currentScreen: ActiveScreen = ActiveScreen.HOME,
-    val deviceName: String = "Pixel 8 Pro - Aero",
+    val deviceName: String = "Aero SHAREit Device",
     val availableFiles: List<FileItem> = emptyList(),
     val selectedFiles: Set<String> = emptySet(),
     val selectedCategory: FileCategory = FileCategory.PHOTOS,
@@ -60,17 +62,17 @@ data class TransferUiState(
     val selectedReceipt: VerifiedReceipt? = null,
     val groupSession: GroupRoomSession = GroupRoomSession(),
     val is5GhzPreferred: Boolean = true,
-    val isEncryptionEnabled: Boolean = true,
+    val isEncryptionEnabled: Boolean = false,
     val autoDisconnect: Boolean = true,
     val isLiteMode: Boolean = false,
     val isPinRequired: Boolean = false,
     val isSafeDropEnabled: Boolean = true,
     val isBridgeServerActive: Boolean = false,
-    val bridgeUrl: String = "http://192.168.49.1:8844?token=882944",
-    val bridgeAuthToken: String = "882944",
+    val bridgeAuthToken: String = UUID.randomUUID().toString().replace("-", ""),
+    val bridgeUrl: String = "",
     val pendingSafeDropRequest: SafeDropRequest? = null,
     val connectedPcClients: Int = 0,
-    val autopilotRecommendation: String = "5GHz Turbo Link Active • AES-GCM Encrypted Handshake",
+    val autopilotRecommendation: String = "Local-network transfer • SHA-256 integrity check",
     val totalSentBytes: Long = 0L,
     val totalReceivedBytes: Long = 0L,
     val averageSpeedMbps: Float = 0.0f,
@@ -91,7 +93,10 @@ class TransferViewModel(application: Application) : AndroidViewModel(application
     private var transferJob: Job? = null
     private var serverEngine: AeroTransferServer? = null
     private var clientEngine: AeroTransferClient? = null
+    private val groupTransferClients = mutableSetOf<AeroTransferClient>()
     private var pcBridgeServer: PhoneToPcBridgeServer? = null
+    private var discoveryEngine: NearbyDeviceDiscovery? = null
+    @Volatile private var pendingSafeDropApproval: ((Boolean) -> Unit)? = null
 
     init {
         initTransferEngines()
@@ -107,11 +112,24 @@ class TransferViewModel(application: Application) : AndroidViewModel(application
         serverEngine = AeroTransferServer(
             context = context,
             onIncomingRequest = { request, callback ->
-                _uiState.update { it.copy(pendingSafeDropRequest = request) }
-                if (!_uiState.value.isSafeDropEnabled || SafeDropManager.isDeviceTrusted(request.peerName)) {
+                // Peer names are self-asserted and not cryptographically authenticated.
+                // Never auto-approve by name alone; only the explicit SafeDrop-off setting bypasses approval.
+                val autoApproved = !_uiState.value.isSafeDropEnabled
+                if (autoApproved) {
+                    _uiState.update { it.copy(pendingSafeDropRequest = null) }
                     callback(true)
                 } else {
-                    callback(true)
+                    _uiState.update { it.copy(pendingSafeDropRequest = request) }
+                    pendingSafeDropApproval = { accepted ->
+                        _uiState.update { state ->
+                            if (state.pendingSafeDropRequest?.requestId == request.requestId) {
+                                state.copy(pendingSafeDropRequest = null)
+                            } else {
+                                state
+                            }
+                        }
+                        callback(accepted)
+                    }
                 }
             },
             onProgressUpdate = { record ->
@@ -119,6 +137,7 @@ class TransferViewModel(application: Application) : AndroidViewModel(application
             },
             onTransferFinished = { receipt ->
                 addVerifiedReceipt(receipt)
+                val allFilesVerified = receipt.fileReceiptItems.isNotEmpty() && receipt.fileReceiptItems.all { it.verified }
                 val finalRecord = TransferRecord(
                     id = receipt.sessionId,
                     fileName = receipt.fileReceiptItems.firstOrNull()?.fileName ?: "Received_Batch",
@@ -129,16 +148,19 @@ class TransferViewModel(application: Application) : AndroidViewModel(application
                     speedMbps = receipt.averageSpeedMbps,
                     isIncoming = true,
                     peerName = receipt.peerDeviceName,
-                    status = TransferStatus.COMPLETED,
-                    localFilePath = "${context.cacheDir.path}/transfers/${receipt.fileReceiptItems.firstOrNull()?.fileName}",
+                    status = if (allFilesVerified) TransferStatus.COMPLETED else TransferStatus.FAILED,
+                    localFilePath = receipt.fileReceiptItems.firstOrNull()?.localFilePath,
                     sha256Checksum = receipt.fileReceiptItems.firstOrNull()?.sha256Checksum
                 )
                 onTransferRecordCompleted(finalRecord, isOutgoing = false)
             },
-            onError = { _ ->
+            onError = { message ->
                 _uiState.update { state ->
                     val cur = state.activeTransferRecord
-                    state.copy(activeTransferRecord = cur?.copy(status = TransferStatus.FAILED))
+                    state.copy(
+                        activeTransferRecord = cur?.copy(status = TransferStatus.FAILED),
+                        storageCleanerMessage = message
+                    )
                 }
             }
         )
@@ -151,8 +173,10 @@ class TransferViewModel(application: Application) : AndroidViewModel(application
             onTransferFinished = { receipt ->
                 addVerifiedReceipt(receipt)
                 val cur = _uiState.value.activeTransferRecord
+                val allFilesVerified = receipt.fileReceiptItems.isNotEmpty() && receipt.fileReceiptItems.all { it.verified }
+                val finalStatus = if (allFilesVerified) TransferStatus.COMPLETED else TransferStatus.FAILED
                 val finalRecord = cur?.copy(
-                    status = TransferStatus.COMPLETED,
+                    status = finalStatus,
                     transferredBytes = receipt.totalBytesTransferred,
                     progress = 1.0f,
                     speedMbps = receipt.averageSpeedMbps
@@ -166,7 +190,7 @@ class TransferViewModel(application: Application) : AndroidViewModel(application
                     speedMbps = receipt.averageSpeedMbps,
                     isIncoming = false,
                     peerName = receipt.peerDeviceName,
-                    status = TransferStatus.COMPLETED
+                    status = finalStatus
                 )
                 onTransferRecordCompleted(finalRecord, isOutgoing = true)
             },
@@ -175,32 +199,46 @@ class TransferViewModel(application: Application) : AndroidViewModel(application
                     val cur = state.activeTransferRecord
                     state.copy(activeTransferRecord = cur?.copy(status = TransferStatus.FAILED))
                 }
-            }
+            },
+            liteModeProvider = { _uiState.value.isLiteMode }
         )
 
         pcBridgeServer = PhoneToPcBridgeServer(
             context = context,
+            authToken = _uiState.value.bridgeAuthToken,
             onClientConnected = { _ ->
                 _uiState.update { it.copy(connectedPcClients = it.connectedPcClients + 1) }
             }
         )
+
+        // Start the actual TCP receiver; do not rely on demo peers or simulated transfers.
+        serverEngine?.start()
     }
 
     private fun initNearbyDevices() {
-        val peers = listOf(
-            NearbyDevice("d1", "Sarah's Galaxy S24 Ultra", "192.168.49.20", 8829, is5Ghz = true, signalStrength = 98, deviceModel = "Samsung SM-S928B"),
-            NearbyDevice("d2", "Alex's Pixel 9 Pro", "192.168.49.21", 8829, is5Ghz = true, signalStrength = 92, deviceModel = "Google Pixel 9 Pro"),
-            NearbyDevice("d3", "Living Room Android TV", "192.168.49.22", 8829, is5Ghz = false, signalStrength = 78, deviceModel = "Google TV 4K")
-        )
-        _uiState.update { it.copy(nearbyDevices = peers) }
+        discoveryEngine = NearbyDeviceDiscovery(
+            deviceNameProvider = { _uiState.value.deviceName },
+            onDevicesChanged = { devices ->
+                _uiState.update { state ->
+                    state.copy(nearbyDevices = devices, selectedPeer = state.selectedPeer?.let { selected ->
+                        devices.firstOrNull { it.id == selected.id }
+                    })
+                }
+            }
+        ).also { it.start() }
     }
 
     private fun updateAutopilot() {
+        val state = _uiState.value
+        val selectedBytes = state.availableFiles
+            .filter { state.selectedFiles.contains(it.id) }
+            .sumOf { it.sizeBytes }
         val recommendation = TransferAutopilot.analyzeAndRecommend(
             context = getApplication(),
-            batchBytes = 350_000_000L,
-            isPcPeer = false,
-            isGroupSession = false
+            batchBytes = selectedBytes,
+            isPcPeer = state.currentScreen == ActiveScreen.PHONE_TO_PC,
+            isGroupSession = state.currentScreen == ActiveScreen.GROUP_ROOM,
+            isLiteMode = state.isLiteMode
         )
         _uiState.update {
             it.copy(autopilotRecommendation = "${recommendation.recommendedBand} • ${recommendation.recommendedMode}")
@@ -220,11 +258,13 @@ class TransferViewModel(application: Application) : AndroidViewModel(application
                     categorySizes = scanResult.categorySizes
                 )
             }
+            updateAutopilot()
         }
     }
 
     fun navigateTo(screen: ActiveScreen) {
         _uiState.update { it.copy(currentScreen = screen) }
+        updateAutopilot()
     }
 
     fun selectCategory(category: FileCategory) {
@@ -237,6 +277,7 @@ class TransferViewModel(application: Application) : AndroidViewModel(application
             if (set.contains(fileId)) set.remove(fileId) else set.add(fileId)
             state.copy(selectedFiles = set)
         }
+        updateAutopilot()
     }
 
     fun selectAllFilesInCategory(category: FileCategory) {
@@ -250,14 +291,20 @@ class TransferViewModel(application: Application) : AndroidViewModel(application
             }
             state.copy(selectedFiles = set)
         }
+        updateAutopilot()
     }
 
     fun clearSelectedFiles() {
         _uiState.update { it.copy(selectedFiles = emptySet()) }
+        updateAutopilot()
     }
 
     fun startTransferToPeer(peer: NearbyDevice) {
         val selected = _uiState.value.availableFiles.filter { _uiState.value.selectedFiles.contains(it.id) }
+        if (selected.isEmpty()) {
+            _uiState.update { it.copy(storageCleanerMessage = "Select at least one file before connecting to a receiver.") }
+            return
+        }
         val totalBytes = selected.sumOf { it.sizeBytes }
 
         val record = TransferRecord(
@@ -301,6 +348,7 @@ class TransferViewModel(application: Application) : AndroidViewModel(application
 
     fun cancelTransfer() {
         clientEngine?.cancel()
+        synchronized(groupTransferClients) { groupTransferClients.forEach { it.cancel() }; groupTransferClients.clear() }
         _uiState.update { state ->
             val cur = state.activeTransferRecord
             state.copy(
@@ -313,50 +361,125 @@ class TransferViewModel(application: Application) : AndroidViewModel(application
     fun togglePcBridge(active: Boolean) {
         if (active) {
             pcBridgeServer?.start()
+            val address = findLocalIpv4Address()
+            _uiState.update { state ->
+                state.copy(
+                    isBridgeServerActive = true,
+                    bridgeUrl = address?.let { "http://$it:${AeroTransferProtocol.PC_BRIDGE_PORT}?token=${state.bridgeAuthToken}" }.orEmpty(),
+                    storageCleanerMessage = if (address == null) {
+                        "Connect this phone and your PC to the same Wi-Fi network, then try the bridge again."
+                    } else state.storageCleanerMessage
+                )
+            }
         } else {
             pcBridgeServer?.stop()
+            _uiState.update { it.copy(isBridgeServerActive = false, bridgeUrl = "") }
         }
-        _uiState.update { it.copy(isBridgeServerActive = active) }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun findLocalIpv4Address(): String? {
+        val wifiManager = getApplication<Application>().applicationContext
+            .getSystemService(android.content.Context.WIFI_SERVICE) as? android.net.wifi.WifiManager
+            ?: return null
+        val ip = wifiManager.connectionInfo.ipAddress
+        if (ip == 0) return null
+        return "${ip and 0xff}.${(ip shr 8) and 0xff}.${(ip shr 16) and 0xff}.${(ip shr 24) and 0xff}"
     }
 
     fun startGroupDrop() {
         val selected = _uiState.value.availableFiles.filter { _uiState.value.selectedFiles.contains(it.id) }
-        val files = if (selected.isNotEmpty()) selected else _uiState.value.availableFiles.take(1)
         val members = _uiState.value.groupSession.members
-
-        if (files.isEmpty() || members.isEmpty()) return
+        if (selected.isEmpty()) {
+            _uiState.update { it.copy(storageCleanerMessage = "Select at least one file before starting GroupDrop.") }
+            return
+        }
+        if (members.isEmpty()) {
+            _uiState.update { it.copy(storageCleanerMessage = "Discover and add at least one peer before starting GroupDrop.") }
+            return
+        }
+        val files = selected
 
         _uiState.update { state ->
-            state.copy(groupSession = state.groupSession.copy(isGroupDropActive = true))
+            state.copy(groupSession = state.groupSession.copy(isGroupDropActive = true) )
         }
 
+        // One client/socket per peer; each transfer must finish verification before the next starts.
         viewModelScope.launch {
-            for (peer in members) {
-                clientEngine?.startTransfer(
-                    targetIp = peer.ipAddress,
-                    targetPort = 8829,
-                    localDeviceName = _uiState.value.deviceName,
-                    files = files
-                )
-            }
-            _uiState.update { state ->
-                state.copy(groupSession = state.groupSession.copy(isGroupDropActive = false))
+            try {
+                for (peer in members) {
+                    val completed = CompletableDeferred<Boolean>()
+                    val groupClient = AeroTransferClient(
+                        context = getApplication(),
+                        onProgressUpdate = { record ->
+                            _uiState.update { it.copy(activeTransferRecord = record) }
+                        },
+                        onTransferFinished = { receipt ->
+                            addVerifiedReceipt(receipt)
+                            val verified = receipt.fileReceiptItems.isNotEmpty() && receipt.fileReceiptItems.all { it.verified }
+                            val record = TransferRecord(
+                                id = receipt.sessionId,
+                                fileName = receipt.fileReceiptItems.firstOrNull()?.fileName ?: "Batch",
+                                fileSizeFormatted = StorageSmartManager.formatBytes(receipt.totalBytesTransferred),
+                                totalBytes = receipt.totalBytesTransferred,
+                                transferredBytes = receipt.totalBytesTransferred,
+                                progress = if (verified) 1f else 0f,
+                                speedMbps = receipt.averageSpeedMbps,
+                                isIncoming = false,
+                                peerName = peer.name,
+                                status = if (verified) TransferStatus.COMPLETED else TransferStatus.FAILED
+                            )
+                            onTransferRecordCompleted(record, isOutgoing = true)
+                            completed.complete(verified)
+                        },
+                        onError = { message ->
+                            _uiState.update { state ->
+                                state.copy(
+                                    activeTransferRecord = state.activeTransferRecord?.copy(status = TransferStatus.FAILED),
+                                    storageCleanerMessage = message
+                                )
+                            }
+                            completed.complete(false)
+                        },
+                        liteModeProvider = { _uiState.value.isLiteMode }
+                    )
+                    synchronized(groupTransferClients) { groupTransferClients.add(groupClient) }
+                    groupClient.startTransfer(
+                        targetIp = peer.ipAddress,
+                        targetPort = AeroTransferProtocol.DEFAULT_PORT,
+                        localDeviceName = _uiState.value.deviceName,
+                        files = files
+                    )
+                    val succeeded = try {
+                        completed.await()
+                    } finally {
+                        groupClient.cancel()
+                        synchronized(groupTransferClients) { groupTransferClients.remove(groupClient) }
+                    }
+                    if (!succeeded) break
+                }
+            } finally {
+                _uiState.update { state ->
+                    state.copy(groupSession = state.groupSession.copy(isGroupDropActive = false))
+                }
             }
         }
     }
 
     fun addGroupPeer() {
-        val current = _uiState.value.groupSession.members
+        val state = _uiState.value
+        val existingIds = state.groupSession.members.map { it.id }.toSet()
+        val peer = state.nearbyDevices.firstOrNull { it.id !in existingIds } ?: return
         val newPeer = GroupPeer(
-            id = "peer_${System.currentTimeMillis() % 10000}",
-            name = if (current.isEmpty()) "Sarah's Pixel Tablet" else "Alex's Galaxy Tab",
-            model = "Android Direct Peer",
-            ipAddress = "192.168.49.${20 + current.size}"
+            id = peer.id,
+            name = peer.name,
+            model = peer.deviceModel,
+            ipAddress = peer.ipAddress
         )
-        _uiState.update { state ->
-            state.copy(
-                groupSession = state.groupSession.copy(
-                    members = state.groupSession.members + newPeer
+        _uiState.update { current ->
+            current.copy(
+                groupSession = current.groupSession.copy(
+                    members = current.groupSession.members + newPeer
                 )
             )
         }
@@ -435,6 +558,10 @@ class TransferViewModel(application: Application) : AndroidViewModel(application
 
     fun startPhoneMigration(selectedCategories: Set<FileCategory>) {
         val migrationFiles = _uiState.value.availableFiles.filter { selectedCategories.contains(it.category) }
+        if (migrationFiles.isEmpty()) {
+            _uiState.update { it.copy(storageCleanerMessage = "No files found in the selected categories.") }
+            return
+        }
         _uiState.update { state ->
             state.copy(
                 selectedFiles = migrationFiles.map { it.id }.toSet(),
@@ -444,7 +571,10 @@ class TransferViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun approveSafeDrop(approved: Boolean) {
+        val approval = pendingSafeDropApproval
+        pendingSafeDropApproval = null
         _uiState.update { it.copy(pendingSafeDropRequest = null) }
+        approval?.invoke(approved)
     }
 
     private fun addVerifiedReceipt(receipt: VerifiedReceipt) {
@@ -550,8 +680,19 @@ class TransferViewModel(application: Application) : AndroidViewModel(application
 
     fun cleanAppTemporaryCache(cleanAll: Boolean = true) {
         viewModelScope.launch {
-            val activeName = _uiState.value.activeTransferRecord?.fileName
-            val activeSet = if (activeName != null) setOf(activeName) else emptySet()
+            val activeRecord = _uiState.value.activeTransferRecord
+            val transferIsActive = activeRecord != null && activeRecord.status in setOf(
+                TransferStatus.WAITING_ACCEPT,
+                TransferStatus.HANDSHAKING,
+                TransferStatus.TRANSFERRING,
+                TransferStatus.PAUSED,
+                TransferStatus.VERIFYING
+            )
+            val activeSet = if (transferIsActive && activeRecord != null) {
+                setOf(activeRecord.fileName)
+            } else {
+                emptySet()
+            }
 
             val result = FileManagerAndCleanerEngine.cleanAppTemporaryCache(
                 context = getApplication(),
@@ -601,6 +742,7 @@ class TransferViewModel(application: Application) : AndroidViewModel(application
     override fun onCleared() {
         super.onCleared()
         serverEngine?.stop()
+        discoveryEngine?.stop()
         pcBridgeServer?.stop()
         clientEngine?.cancel()
     }

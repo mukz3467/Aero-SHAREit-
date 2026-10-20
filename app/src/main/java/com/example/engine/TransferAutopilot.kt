@@ -19,41 +19,31 @@ object TransferAutopilot {
         context: Context,
         batchBytes: Long,
         isPcPeer: Boolean,
-        isGroupSession: Boolean
+        isGroupSession: Boolean,
+        isLiteMode: Boolean = false
     ): AutopilotRecommendation {
         val (batteryPct, isCharging) = getBatteryStatus(context)
         val shouldLite = batteryPct < 20 && !isCharging
-
-        val band = if (shouldLite) {
-            "2.4GHz Power-Saving Mode"
-        } else {
-            "5GHz Turbo Band (Ultra Low Latency)"
-        }
-
+        val band = "Local Wi-Fi (band managed by Android)"
         val mode = when {
-            isPcPeer -> "Phone-to-PC WebShare Bridge (Port 8844)"
-            isGroupSession -> "Live Group Room Multi-Cast"
-            else -> "Direct Offline P2P Stream"
+            isPcPeer -> "PC bridge browser upload/download over local HTTP (unencrypted)"
+            isGroupSession -> "Sequential GroupDrop over local Wi-Fi"
+            else -> "Local TCP transfer with SHA-256 verification"
         }
-
-        val chunkSizeKb = when {
-            shouldLite -> 32
-            batchBytes > 500_000_000L -> 128
-            else -> 64
-        }
-
+        // The Lite Mode setting is wired into the sender's staging and socket buffers.
+        val chunkSizeKb = if (isLiteMode) 16 else 64
         val headline = when {
-            shouldLite -> "Battery-Smart Lite Mode Recommended (${batteryPct}%)"
+            shouldLite && !isLiteMode -> "Battery-Smart Lite Mode Recommended (${batteryPct}%)"
             batchBytes > 500_000_000L -> "Large Transfer Detected (${StorageSmartManager.formatBytes(batchBytes)})"
-            else -> "Optimal P2P Transfer Ready"
+            isLiteMode -> "Lite Mode Active · 16 KiB Transfer Buffers"
+            else -> "Local Transfer Ready"
         }
-
         val details = when {
-            shouldLite -> "Device battery is below 20%. Background beacon animations and high-power radio bursts are throttled."
-            batchBytes > 500_000_000L -> "Using 128 KB chunk streams with real-time SHA-256 verification and offset resume protection."
-            else -> "Zero cloud routing, 5GHz hardware link, and direct peer socket acceleration active."
+            shouldLite && !isLiteMode -> "Battery is below 20%. Lite Mode uses smaller 16 KiB sender buffers; Android still controls radio power and Wi-Fi band."
+            isLiteMode -> "Lite Mode uses 16 KiB buffers for staging and socket streams to reduce per-operation memory use. This may reduce throughput and does not guarantee lower battery use."
+            batchBytes > 500_000_000L -> "Large batch detected. Outgoing files are staged to disk and streamed in bounded chunks to reduce RAM use."
+            else -> "Peers must share the same local Wi-Fi network. File contents are not encrypted yet; SHA-256 checks verify received files."
         }
-
         return AutopilotRecommendation(
             recommendedBand = band,
             recommendedMode = mode,
@@ -72,8 +62,7 @@ object TransferAutopilot {
             val scale = batteryStatus?.getIntExtra(BatteryManager.EXTRA_SCALE, -1) ?: -1
             val status = batteryStatus?.getIntExtra(BatteryManager.EXTRA_STATUS, -1) ?: -1
             val isCharging = status == BatteryManager.BATTERY_STATUS_CHARGING ||
-                    status == BatteryManager.BATTERY_STATUS_FULL
-
+                status == BatteryManager.BATTERY_STATUS_FULL
             val pct = if (level >= 0 && scale > 0) ((level / scale.toFloat()) * 100).toInt() else 85
             Pair(pct, isCharging)
         } catch (_: Exception) {

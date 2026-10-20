@@ -193,7 +193,7 @@ private fun HomeHeaderSection(
                     )
                     Spacer(modifier = Modifier.width(4.dp))
                     Text(
-                        text = "5GHz Turbo",
+                        text = "Local Network",
                         color = AeroEmerald,
                         fontWeight = FontWeight.Bold,
                         fontSize = 11.sp
@@ -518,8 +518,8 @@ private fun QuickToolsSection(
         ) {
             ToolCard(
                 icon = Icons.Default.QrCodeScanner,
-                title = "Scan QR",
-                subtitle = "Fast Pair",
+                title = "Find Devices",
+                subtitle = "Local Wi-Fi",
                 onClick = onQrClick,
                 modifier = Modifier.weight(1f)
             )

@@ -56,6 +56,50 @@ class AeroEngineUnitTest {
     }
 
     @Test
+    fun testAesGcmRejectsTamperedCiphertext() {
+        val alice = AeroCryptoEngine.generateEcdhKeyPair()
+        val bob = AeroCryptoEngine.generateEcdhKeyPair()
+        val salt = ByteArray(32) { it.toByte() }
+        val shared = AeroCryptoEngine.computeSharedSecret(alice.private, bob.public)
+        val key = AeroCryptoEngine.deriveAesKey(shared, salt, "AeroDataTransfer")
+        val aad = "file=0;offset=0".toByteArray(StandardCharsets.UTF_8)
+        val plaintext = "private payload".toByteArray(StandardCharsets.UTF_8)
+        val encrypted = AeroCryptoEngine.encryptChunk(plaintext, 0, plaintext.size, key, aad)
+        encrypted[encrypted.lastIndex] = (encrypted.last().toInt() xor 0x01).toByte()
+
+        var rejected = false
+        try {
+            AeroCryptoEngine.decryptChunk(encrypted, key, aad)
+        } catch (_: Exception) {
+            rejected = true
+        }
+        assertTrue("AES-GCM must reject modified ciphertext", rejected)
+    }
+
+    @Test
+    fun testAesGcmRejectsWrongAdditionalAuthenticatedData() {
+        val alice = AeroCryptoEngine.generateEcdhKeyPair()
+        val bob = AeroCryptoEngine.generateEcdhKeyPair()
+        val salt = ByteArray(32) { (it * 3).toByte() }
+        val shared = AeroCryptoEngine.computeSharedSecret(alice.private, bob.public)
+        val key = AeroCryptoEngine.deriveAesKey(shared, salt, "AeroDataTransfer")
+        val plaintext = "authenticated chunk".toByteArray(StandardCharsets.UTF_8)
+        val encrypted = AeroCryptoEngine.encryptChunk(
+            plaintext, 0, plaintext.size, key, "file=1;offset=0".toByteArray(StandardCharsets.UTF_8)
+        )
+
+        var rejected = false
+        try {
+            AeroCryptoEngine.decryptChunk(
+                encrypted, key, "file=1;offset=4096".toByteArray(StandardCharsets.UTF_8)
+            )
+        } catch (_: Exception) {
+            rejected = true
+        }
+        assertTrue("AES-GCM must reject changed AAD", rejected)
+    }
+
+    @Test
     fun testSha256ChecksumIntegrity() {
         val payload = "Hello AeroShare P2P Offline Engine".toByteArray(StandardCharsets.UTF_8)
         val hash = FileIntegrityEngine.calculateSha256(payload)

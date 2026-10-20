@@ -82,7 +82,7 @@ fun SettingsScreen(
             title = { Text(text = "Clean App Cache & Temporary Parts?", fontWeight = FontWeight.Bold, color = AeroTextPrimary, fontSize = 17.sp) },
             text = {
                 Text(
-                    text = "This will clean ${uiState.cacheReport.formattedTotalCache} of cache, including ${uiState.cacheReport.abandonedTransfersCount} temporary transfer parts. Your downloaded files remain safe.",
+                    text = "This will clean ${uiState.cacheReport.formattedTotalCache} of cache, including temporary transfer parts. Verified received files are stored in Aero SHAREit's app-specific Downloads folder and are not removed by cache cleanup.",
                     color = AeroTextPrimary,
                     fontSize = 14.sp
                 )
@@ -167,13 +167,19 @@ fun SettingsScreen(
         }
 
         item {
-            SettingsToggleCard(
-                icon = Icons.Default.Lock,
-                title = "AES-GCM Handshake Encryption",
-                subtitle = "Encrypt file chunks in flight using ephemeral ECDH + AES-256-GCM",
-                isChecked = uiState.isEncryptionEnabled,
-                onCheckedChange = onToggleEncryption
-            )
+            Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)) {
+                Text(
+                    text = "AES-GCM session encryption is active",
+                    color = AeroTextPrimary,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 14.sp
+                )
+                Text(
+                    text = "File chunks are encrypted with AES-GCM using an ECDH-derived session key, and received files are verified with SHA-256. Peer identity is not yet authenticated, so this does not prevent a man-in-the-middle attack; use trusted local networks.",
+                    color = AeroTextSecondary,
+                    fontSize = 12.sp
+                )
+            }
         }
 
         item {
@@ -194,8 +200,8 @@ fun SettingsScreen(
         item {
             SettingsToggleCard(
                 icon = Icons.Default.Wifi,
-                title = "Prefer 5GHz Band",
-                subtitle = "Uses 80MHz channel width for speeds up to 45 MB/s on supported hardware",
+                title = "Prefer 5GHz Band (advisory)",
+                subtitle = "This preference does not force the Wi-Fi band; Android and the connected network control it.",
                 isChecked = uiState.is5GhzPreferred,
                 onCheckedChange = onToggle5Ghz
             )
@@ -204,8 +210,8 @@ fun SettingsScreen(
         item {
             SettingsToggleCard(
                 icon = Icons.Default.WifiTethering,
-                title = "Auto-Disconnect Hotspot",
-                subtitle = "Closes Wi-Fi Direct beacon when transfer finishes to save battery",
+                title = "Auto-Disconnect (not integrated)",
+                subtitle = "Automatic hotspot or Wi-Fi Direct lifecycle management is not implemented yet.",
                 isChecked = uiState.autoDisconnect,
                 onCheckedChange = onToggleAutoDisconnect
             )

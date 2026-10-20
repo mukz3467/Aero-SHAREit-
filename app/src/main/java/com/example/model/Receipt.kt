@@ -6,7 +6,8 @@ data class FileReceiptItem(
     val fileName: String,
     val fileSizeBytes: Long,
     val sha256Checksum: String,
-    val verified: Boolean = true
+    val verified: Boolean = true,
+    val localFilePath: String? = null
 )
 
 data class VerifiedReceipt(
@@ -18,7 +19,7 @@ data class VerifiedReceipt(
     val totalFilesCount: Int = 1,
     val durationSeconds: Int = 0,
     val averageSpeedMbps: Float = 0f,
-    val integrityStatus: String = "Cryptographically Verified (SHA-256)",
+    val integrityStatus: String = "AES-GCM encrypted session; SHA-256 verified; peer identity not authenticated",
     val isOutgoing: Boolean = false,
     val fileReceiptItems: List<FileReceiptItem> = emptyList(),
     val timestamp: Long = System.currentTimeMillis()

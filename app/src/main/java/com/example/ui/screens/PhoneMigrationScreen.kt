@@ -35,8 +35,10 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -47,6 +49,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.engine.StorageSmartManager
+import com.example.model.FileCategory
+import com.example.viewmodel.TransferUiState
 import com.example.ui.components.AeroCardBox
 import com.example.ui.theme.AeroBackground
 import com.example.ui.theme.AeroBlueAccent
@@ -61,33 +65,56 @@ import com.example.ui.theme.AeroTextSecondary
 
 data class MigrationCategoryItem(
     val id: String,
+    val category: FileCategory,
     val title: String,
     val countDescription: String,
     val sizeBytes: Long,
     val icon: ImageVector,
-    val accentColor: Color,
-    var isSelected: Boolean = true
+    val accentColor: Color
 )
 
 @Composable
 fun PhoneMigrationScreen(
+    uiState: TransferUiState,
     onBack: () -> Unit,
-    onStartMigration: (Long) -> Unit,
+    onStartMigration: (Set<FileCategory>) -> Unit,
     modifier: Modifier = Modifier
 ) {
     BackHandler { onBack() }
 
-    val categories = remember {
-        mutableStateListOf(
-            MigrationCategoryItem("apps", "Apps & Packages", "4 Applications", 120_000_000L, Icons.Default.Android, AeroEmerald, true),
-            MigrationCategoryItem("photos", "Photos & Gallery", "312 Images", 1_450_000_000L, Icons.Default.Image, AeroCyanAccent, true),
-            MigrationCategoryItem("videos", "Videos & Movies", "18 Videos", 2_800_000_000L, Icons.Default.Videocam, AeroPurpleAccent, true),
-            MigrationCategoryItem("music", "Music & Audio", "84 Tracks", 520_000_000L, Icons.Default.Headphones, AeroOrangeAccent, true),
-            MigrationCategoryItem("docs", "Documents & PDFs", "46 Documents", 140_000_000L, Icons.Default.Description, AeroBlueAccent, true)
-        )
+    val categories = remember(uiState.availableFiles, uiState.categoryCounts, uiState.categorySizes) {
+        FileCategory.values().mapNotNull { category ->
+            val matchingFiles = uiState.availableFiles.filter { it.category == category }
+            if (matchingFiles.isEmpty()) return@mapNotNull null
+            val icon = when (category) {
+                FileCategory.PHOTOS -> Icons.Default.Image
+                FileCategory.VIDEOS -> Icons.Default.Videocam
+                FileCategory.AUDIO -> Icons.Default.Headphones
+                FileCategory.APPS -> Icons.Default.Android
+                FileCategory.DOCUMENTS, FileCategory.ARCHIVES -> Icons.Default.Description
+            }
+            val accent = when (category) {
+                FileCategory.PHOTOS -> AeroCyanAccent
+                FileCategory.VIDEOS -> AeroPurpleAccent
+                FileCategory.AUDIO -> AeroOrangeAccent
+                FileCategory.APPS -> AeroEmerald
+                FileCategory.DOCUMENTS -> AeroBlueAccent
+                FileCategory.ARCHIVES -> AeroPurpleAccent
+            }
+            MigrationCategoryItem(
+                id = category.name,
+                category = category,
+                title = category.displayName,
+                countDescription = "${matchingFiles.size} files",
+                sizeBytes = matchingFiles.sumOf { it.sizeBytes },
+                icon = icon,
+                accentColor = accent
+            )
+        }
     }
-
-    val totalSelectedBytes = categories.filter { it.isSelected }.sumOf { it.sizeBytes }
+    var selectedIds by remember(categories) { mutableStateOf(categories.map { it.id }.toSet()) }
+    val selectedCategories = categories.filter { it.id in selectedIds }.map { it.category }.toSet()
+    val totalSelectedBytes = categories.filter { it.id in selectedIds }.sumOf { it.sizeBytes }
 
     Box(
         modifier = modifier
@@ -114,7 +141,7 @@ fun PhoneMigrationScreen(
                         color = AeroTextPrimary
                     )
                     Text(
-                        text = "Clone Old Phone to New Phone • Direct 5GHz",
+                        text = "Select files available on this device to send",
                         style = MaterialTheme.typography.labelSmall,
                         color = AeroEmerald
                     )
@@ -125,14 +152,23 @@ fun PhoneMigrationScreen(
                 modifier = Modifier.weight(1f).fillMaxWidth(),
                 contentPadding = PaddingValues(horizontal = 20.dp, vertical = 8.dp)
             ) {
+                if (categories.isEmpty()) {
+                    item {
+                        Text(
+                            text = "No accessible files found. Grant media permissions and rescan your files first.",
+                            color = AeroTextSecondary,
+                            fontSize = 13.sp
+                        )
+                    }
+                }
                 items(categories) { item ->
                     AeroCardBox(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(vertical = 6.dp)
-                            .clickable { item.isSelected = !item.isSelected },
+                            .clickable { selectedIds = if (item.id in selectedIds) selectedIds - item.id else selectedIds + item.id },
                         backgroundColor = AeroCard,
-                        borderColor = if (item.isSelected) AeroEmerald else AeroBorder,
+                        borderColor = if ((item.id in selectedIds)) AeroEmerald else AeroBorder,
                         shape = RoundedCornerShape(14.dp)
                     ) {
                         Row(
@@ -158,11 +194,11 @@ fun PhoneMigrationScreen(
                                 modifier = Modifier
                                     .size(22.dp)
                                     .clip(CircleShape)
-                                    .background(if (item.isSelected) AeroEmerald else Color.Transparent)
-                                    .border(1.5.dp, if (item.isSelected) AeroEmerald else AeroBorder, CircleShape),
+                                    .background(if ((item.id in selectedIds)) AeroEmerald else Color.Transparent)
+                                    .border(1.5.dp, if ((item.id in selectedIds)) AeroEmerald else AeroBorder, CircleShape),
                                 contentAlignment = Alignment.Center
                             ) {
-                                if (item.isSelected) {
+                                if ((item.id in selectedIds)) {
                                     Icon(imageVector = Icons.Default.Check, contentDescription = null, tint = AeroBackground, modifier = Modifier.size(14.dp))
                                 }
                             }
@@ -173,11 +209,11 @@ fun PhoneMigrationScreen(
 
             Box(modifier = Modifier.fillMaxWidth().padding(20.dp)) {
                 Button(
-                    onClick = { onStartMigration(totalSelectedBytes) },
+                    onClick = { onStartMigration(selectedCategories) },
                     colors = ButtonDefaults.buttonColors(containerColor = AeroEmerald, contentColor = AeroBackground),
                     shape = RoundedCornerShape(14.dp),
                     modifier = Modifier.fillMaxWidth().height(52.dp).testTag("start_migration_button"),
-                    enabled = totalSelectedBytes > 0
+                    enabled = totalSelectedBytes > 0 && selectedCategories.isNotEmpty()
                 ) {
                     Text(
                         text = "Migrate Selected Data (${StorageSmartManager.formatBytes(totalSelectedBytes)})",

@@ -114,7 +114,7 @@ fun GroupRoomScreen(
                             }
                             Spacer(modifier = Modifier.height(8.dp))
                             Text(
-                                text = "Peers on the same local Wi-Fi or Wi-Fi Direct can receive file batches simultaneously with zero cloud routing.",
+                                text = "Discovered peers on the same local Wi-Fi can receive batches one at a time. Each transfer must verify before the next begins.",
                                 color = AeroTextSecondary,
                                 fontSize = 12.sp,
                                 lineHeight = 16.sp
@@ -193,7 +193,7 @@ fun GroupRoomScreen(
                     Icon(imageVector = Icons.Default.Send, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = if (groupSession.isGroupDropActive) "Sending Multi-Cast..." else "Multi-Drop to ${groupSession.members.size} Peers",
+                        text = if (groupSession.isGroupDropActive) "Sending to peers..." else "Multi-Drop to ${groupSession.members.size} Peers",
                         fontWeight = FontWeight.Bold,
                         fontSize = 15.sp
                     )

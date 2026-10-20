@@ -90,6 +90,7 @@ object FileManagerAndCleanerEngine {
     ): CleanupResult {
         var bytesFreed = 0L
         var filesRemoved = 0
+        val transferInProgress = activeTransferNames.isNotEmpty()
 
         val dirs = listOfNotNull(
             context.cacheDir,
@@ -111,7 +112,9 @@ object FileManagerAndCleanerEngine {
                         name.startsWith(active) || name.contains(active)
                     }
 
-                    if (!isProtected && (cleanAllCache || isPart || isTransfer)) {
+                    val belongsToTransfer = isPart || isTransfer
+                    if (!isProtected && !(transferInProgress && belongsToTransfer) &&
+                        (cleanAllCache || isPart || isTransfer)) {
                         val size = file.length()
                         if (file.delete()) {
                             bytesFreed += size
@@ -123,7 +126,7 @@ object FileManagerAndCleanerEngine {
                         val isProtected = activeTransferNames.any { active ->
                             subFile.name.startsWith(active) || subFile.name.contains(active)
                         }
-                        if (!isProtected) {
+                        if (!isProtected && !transferInProgress) {
                             val size = subFile.length()
                             if (subFile.delete()) {
                                 bytesFreed += size
