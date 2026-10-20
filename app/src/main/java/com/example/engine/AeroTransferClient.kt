@@ -19,6 +19,9 @@ import java.io.File
 import java.io.IOException
 import java.net.InetSocketAddress
 import java.net.Socket
+import java.security.SecureRandom
+import java.security.KeyFactory
+import java.security.spec.X509EncodedKeySpec
 import java.util.UUID
 
 class AeroTransferClient(
@@ -139,23 +142,41 @@ class AeroTransferClient(
                     }
 
                     totalBytes = stagedTotalBytes
+                    val clientKeyPair = AeroCryptoEngine.generateEcdhKeyPair()
+                    val sessionSalt = ByteArray(32).also { SecureRandom().nextBytes(it) }
+                    val clientPublicKey = clientKeyPair.public.encoded
                     output.writeInt(AeroTransferProtocol.MAGIC_HEADER)
+                    output.writeInt(AeroTransferProtocol.PROTOCOL_VERSION)
                     output.writeUTF(localDeviceName)
                     output.writeInt(stagedFiles.size)
                     output.writeLong(totalBytes)
+                    output.writeInt(clientPublicKey.size)
+                    output.write(clientPublicKey)
+                    output.writeInt(sessionSalt.size)
+                    output.write(sessionSalt)
                     output.flush()
 
                     val accepted = input.readBoolean()
                     if (!accepted) {
-                        onError("Transfer request rejected by peer.")
+                        onError("Transfer request rejected or receiver storage is insufficient.")
                         return@launch
                     }
+                    val serverKeyLength = input.readInt()
+                    if (serverKeyLength !in 1..4096) throw IOException("Invalid receiver key.")
+                    val serverPublicKeyBytes = ByteArray(serverKeyLength)
+                    input.readFully(serverPublicKeyBytes)
+                    val serverPublicKey = KeyFactory.getInstance("EC")
+                        .generatePublic(X509EncodedKeySpec(serverPublicKeyBytes))
+                    val sharedSecret = AeroCryptoEngine.computeSharedSecret(clientKeyPair.private, serverPublicKey)
+                    val sessionKey = AeroCryptoEngine.deriveAesKey(sharedSecret, sessionSalt, "AeroDataTransfer-v2")
+                    sharedSecret.fill(0)
 
                     transferredSoFar = 0L
                     startTime = System.currentTimeMillis()
                     val buffer = ByteArray(transferChunkSize)
 
-                    for ((f, staged) in stagedFiles) {
+                    for ((fileIndex, pair) in stagedFiles.withIndex()) {
+                        val (f, staged) = pair
                         if (isCancelled) break
                         val fileSize = staged.length()
                         val digest = java.security.MessageDigest.getInstance("SHA-256")
@@ -182,7 +203,11 @@ class AeroTransferClient(
                                 if (isCancelled) break
                                 val count = fileInput.read(buffer)
                                 if (count < 0) break
-                                output.write(buffer, 0, count)
+                                val aad = "file=$fileIndex;offset=$fileOffset".toByteArray(Charsets.UTF_8)
+                                val encrypted = AeroCryptoEngine.encryptChunk(buffer, 0, count, sessionKey, aad)
+                                output.writeInt(count)
+                                output.writeInt(encrypted.size)
+                                output.write(encrypted)
                                 fileOffset += count
                                 transferredSoFar += count
 
