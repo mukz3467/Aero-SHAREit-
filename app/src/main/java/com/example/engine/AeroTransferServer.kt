@@ -112,17 +112,19 @@ class AeroTransferServer(
 
             val tempDir = File(context.cacheDir, "transfers").apply { mkdirs() }
 
+            var declaredBytes = 0L
             for (i in 0 until filesCount) {
                 val fileName = AeroSecuritySanitizer.sanitizeFilename(input.readUTF())
                 val fileSize = input.readLong()
                 val expectedSha = input.readUTF()
-                if (fileSize < 0L || fileSize > totalBytes) {
+                if (fileSize < 0L || fileSize > totalBytes - declaredBytes) {
                     output.writeBoolean(false)
                     output.flush()
                     return
                 }
 
-                val tempFile = File(tempDir, "${fileName}.part").canonicalFile
+                declaredBytes += fileSize
+                val tempFile = File(tempDir, ".aero_${UUID.randomUUID()}.part").canonicalFile
                 if (tempFile.parentFile != tempDir.canonicalFile) {
                     output.writeBoolean(false)
                     output.flush()
@@ -164,8 +166,9 @@ class AeroTransferServer(
                 val complete = fileTransferred == fileSize
                 val actualSha = if (complete) FileIntegrityEngine.calculateFileSha256(tempFile) else ""
                 val checksumMatches = complete && FileIntegrityEngine.verifyChecksum(expectedSha, actualSha)
+                val totalMatches = i != filesCount - 1 || declaredBytes == totalBytes
                 val finalFile = AeroSecuritySanitizer.resolveUniqueFile(tempDir, fileName)
-                val isVerified = checksumMatches && tempFile.renameTo(finalFile)
+                val isVerified = checksumMatches && totalMatches && tempFile.renameTo(finalFile)
                 if (!isVerified) tempFile.delete()
 
                 receiptItems.add(
