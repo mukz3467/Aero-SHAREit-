@@ -82,7 +82,12 @@ class AeroTransferServer(
             val clientDeviceName = input.readUTF()
             val filesCount = input.readInt()
             val totalBytes = input.readLong()
-            val clientIp = s.inetAddress.hostAddress ?: "192.168.49.2"
+            if (filesCount !in 1..1000 || totalBytes < 0L || totalBytes > 100L * 1024 * 1024 * 1024) {
+                output.writeBoolean(false)
+                output.flush()
+                return
+            }
+            val clientIp = s.inetAddress.hostAddress ?: "unknown"
 
             val req = SafeDropRequest(
                 peerName = clientDeviceName,
