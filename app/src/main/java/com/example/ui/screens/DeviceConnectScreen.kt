@@ -139,7 +139,7 @@ private fun ReceiveBeaconView(
             )
             Spacer(modifier = Modifier.height(4.dp))
             Text(
-                text = "Keep both devices on the same local Wi-Fi network. Incoming files require approval before they are saved.",
+                text = "Keep both devices on the same local Wi-Fi network. After approval and SHA-256 verification, received files are saved in Aero SHAREit's app-specific Downloads folder.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = AeroTextSecondary,
                 fontSize = 13.sp
