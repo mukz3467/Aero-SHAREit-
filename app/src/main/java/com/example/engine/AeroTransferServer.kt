@@ -104,8 +104,14 @@ class AeroTransferServer(
             )
 
             val approval = CompletableDeferred<Boolean>()
-            onIncomingRequest(req) { accepted -> approval.complete(accepted) }
-            val isAccepted = withTimeoutOrNull(30_000L) { approval.await() } ?: false
+            val respondToApproval: (Boolean) -> Unit = { accepted -> approval.complete(accepted) }
+            onIncomingRequest(req, respondToApproval)
+            val timedResult = withTimeoutOrNull(30_000L) { approval.await() }
+            val isAccepted = timedResult ?: run {
+                // Notify the UI callback too, so an expired request cannot leave a stale dialog.
+                respondToApproval(false)
+                false
+            }
 
             output.writeBoolean(isAccepted)
             output.flush()
