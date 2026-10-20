@@ -500,6 +500,10 @@ class TransferViewModel(application: Application) : AndroidViewModel(application
 
     fun startPhoneMigration(selectedCategories: Set<FileCategory>) {
         val migrationFiles = _uiState.value.availableFiles.filter { selectedCategories.contains(it.category) }
+        if (migrationFiles.isEmpty()) {
+            _uiState.update { it.copy(storageCleanerMessage = "No files found in the selected categories.") }
+            return
+        }
         _uiState.update { state ->
             state.copy(
                 selectedFiles = migrationFiles.map { it.id }.toSet(),
