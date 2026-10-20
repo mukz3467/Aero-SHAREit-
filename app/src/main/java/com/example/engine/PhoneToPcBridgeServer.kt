@@ -12,11 +12,12 @@ import java.io.InputStreamReader
 import java.io.PrintWriter
 import java.net.ServerSocket
 import java.net.Socket
+import java.util.UUID
 
 class PhoneToPcBridgeServer(
     private val context: Context,
     private val port: Int = AeroTransferProtocol.PC_BRIDGE_PORT,
-    private val authToken: String = "882944",
+    private val authToken: String = UUID.randomUUID().toString().replace("-", ""),
     private val onClientConnected: (String) -> Unit = {}
 ) {
     private var serverSocket: ServerSocket? = null
