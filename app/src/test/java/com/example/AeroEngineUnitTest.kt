@@ -200,4 +200,36 @@ class AeroEngineUnitTest {
         assertTrue(duplicates.any { it.id == "1" })
         assertTrue(duplicates.any { it.id == "3" })
     }
+
+    @Test
+    fun testCryptoRejectsMalformedChunkBoundsAndShortCiphertext() {
+        val alice = AeroCryptoEngine.generateEcdhKeyPair()
+        val bob = AeroCryptoEngine.generateEcdhKeyPair()
+        val shared = AeroCryptoEngine.computeSharedSecret(alice.private, bob.public)
+        val key = AeroCryptoEngine.deriveAesKey(shared, ByteArray(32) { it.toByte() }, "AeroDataTransfer")
+        var shortCiphertextRejected = false
+        try {
+            AeroCryptoEngine.decryptChunk(ByteArray(12), key, byteArrayOf())
+        } catch (_: IllegalArgumentException) {
+            shortCiphertextRejected = true
+        }
+        assertTrue("Short encrypted packets must be rejected before parsing", shortCiphertextRejected)
+
+        var invalidBoundsRejected = false
+        try {
+            AeroCryptoEngine.encryptChunk(byteArrayOf(1, 2, 3), 2, 2, key, byteArrayOf())
+        } catch (_: IllegalArgumentException) {
+            invalidBoundsRejected = true
+        }
+        assertTrue("Invalid plaintext slice bounds must be rejected", invalidBoundsRejected)
+    }
+
+    @Test
+    fun testSasCodeUsesSixDigits() {
+        val pairA = AeroCryptoEngine.generateEcdhKeyPair()
+        val pairB = AeroCryptoEngine.generateEcdhKeyPair()
+        val shared = AeroCryptoEngine.computeSharedSecret(pairA.private, pairB.public)
+        val code = AeroCryptoEngine.generateSasCode(shared, ByteArray(32) { (it + 1).toByte() })
+        assertTrue("SAS must always be six decimal digits", code.matches(Regex("\\d{6}")))
+    }
 }
