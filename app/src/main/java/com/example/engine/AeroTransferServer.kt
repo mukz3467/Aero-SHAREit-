@@ -23,6 +23,8 @@ import java.io.File
 import java.io.IOException
 import java.net.ServerSocket
 import java.net.Socket
+import java.security.KeyFactory
+import java.security.spec.X509EncodedKeySpec
 import java.util.UUID
 
 class AeroTransferServer(
