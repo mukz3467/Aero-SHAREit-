@@ -24,6 +24,7 @@ import com.example.model.NearbyDevice
 import com.example.model.TransferRecord
 import com.example.model.TransferStatus
 import com.example.model.VerifiedReceipt
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -92,6 +93,7 @@ class TransferViewModel(application: Application) : AndroidViewModel(application
     private var transferJob: Job? = null
     private var serverEngine: AeroTransferServer? = null
     private var clientEngine: AeroTransferClient? = null
+    private val groupTransferClients = mutableSetOf<AeroTransferClient>()
     private var pcBridgeServer: PhoneToPcBridgeServer? = null
     private var discoveryEngine: NearbyDeviceDiscovery? = null
     @Volatile private var pendingSafeDropApproval: ((Boolean) -> Unit)? = null
@@ -315,6 +317,7 @@ class TransferViewModel(application: Application) : AndroidViewModel(application
 
     fun cancelTransfer() {
         clientEngine?.cancel()
+        synchronized(groupTransferClients) { groupTransferClients.forEach { it.cancel() }; groupTransferClients.clear() }
         _uiState.update { state ->
             val cur = state.activeTransferRecord
             state.copy(
@@ -337,24 +340,68 @@ class TransferViewModel(application: Application) : AndroidViewModel(application
         val selected = _uiState.value.availableFiles.filter { _uiState.value.selectedFiles.contains(it.id) }
         val files = if (selected.isNotEmpty()) selected else _uiState.value.availableFiles.take(1)
         val members = _uiState.value.groupSession.members
-
         if (files.isEmpty() || members.isEmpty()) return
 
         _uiState.update { state ->
-            state.copy(groupSession = state.groupSession.copy(isGroupDropActive = true))
+            state.copy(groupSession = state.groupSession.copy(isGroupDropActive = true) )
         }
 
+        // One client/socket per peer; each transfer must finish verification before the next starts.
         viewModelScope.launch {
-            for (peer in members) {
-                clientEngine?.startTransfer(
-                    targetIp = peer.ipAddress,
-                    targetPort = 8829,
-                    localDeviceName = _uiState.value.deviceName,
-                    files = files
-                )
-            }
-            _uiState.update { state ->
-                state.copy(groupSession = state.groupSession.copy(isGroupDropActive = false))
+            try {
+                for (peer in members) {
+                    val completed = CompletableDeferred<Boolean>()
+                    val groupClient = AeroTransferClient(
+                        context = getApplication(),
+                        onProgressUpdate = { record ->
+                            _uiState.update { it.copy(activeTransferRecord = record) }
+                        },
+                        onTransferFinished = { receipt ->
+                            addVerifiedReceipt(receipt)
+                            val verified = receipt.fileReceiptItems.isNotEmpty() && receipt.fileReceiptItems.all { it.verified }
+                            val record = TransferRecord(
+                                id = receipt.sessionId,
+                                fileName = receipt.fileReceiptItems.firstOrNull()?.fileName ?: "Batch",
+                                fileSizeFormatted = StorageSmartManager.formatBytes(receipt.totalBytesTransferred),
+                                totalBytes = receipt.totalBytesTransferred,
+                                transferredBytes = receipt.totalBytesTransferred,
+                                progress = if (verified) 1f else 0f,
+                                speedMbps = receipt.averageSpeedMbps,
+                                isIncoming = false,
+                                peerName = peer.name,
+                                status = if (verified) TransferStatus.COMPLETED else TransferStatus.FAILED
+                            )
+                            onTransferRecordCompleted(record, isOutgoing = true)
+                            completed.complete(verified)
+                        },
+                        onError = { message ->
+                            _uiState.update { state ->
+                                state.copy(
+                                    activeTransferRecord = state.activeTransferRecord?.copy(status = TransferStatus.FAILED),
+                                    storageCleanerMessage = message
+                                )
+                            }
+                            completed.complete(false)
+                        }
+                    )
+                    synchronized(groupTransferClients) { groupTransferClients.add(groupClient) }
+                    groupClient.startTransfer(
+                        targetIp = peer.ipAddress,
+                        targetPort = AeroTransferProtocol.DEFAULT_PORT,
+                        localDeviceName = _uiState.value.deviceName,
+                        files = files
+                    )
+                    val succeeded = try {
+                        completed.await()
+                    } finally {
+                        synchronized(groupTransferClients) { groupTransferClients.remove(groupClient) }
+                    }
+                    if (!succeeded) break
+                }
+            } finally {
+                _uiState.update { state ->
+                    state.copy(groupSession = state.groupSession.copy(isGroupDropActive = false))
+                }
             }
         }
     }
