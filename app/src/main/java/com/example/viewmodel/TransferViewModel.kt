@@ -140,7 +140,7 @@ class TransferViewModel(application: Application) : AndroidViewModel(application
                     isIncoming = true,
                     peerName = receipt.peerDeviceName,
                     status = if (allFilesVerified) TransferStatus.COMPLETED else TransferStatus.FAILED,
-                    localFilePath = "${context.cacheDir.path}/transfers/${receipt.fileReceiptItems.firstOrNull()?.fileName}",
+                    localFilePath = receipt.fileReceiptItems.firstOrNull()?.localFilePath,
                     sha256Checksum = receipt.fileReceiptItems.firstOrNull()?.sha256Checksum
                 )
                 onTransferRecordCompleted(finalRecord, isOutgoing = false)
