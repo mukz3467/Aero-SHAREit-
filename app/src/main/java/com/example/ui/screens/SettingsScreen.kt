@@ -169,13 +169,13 @@ fun SettingsScreen(
         item {
             Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)) {
                 Text(
-                    text = "Transfer encryption is not active yet",
+                    text = "AES-GCM session encryption is active",
                     color = AeroTextPrimary,
                     fontWeight = FontWeight.SemiBold,
                     fontSize = 14.sp
                 )
                 Text(
-                    text = "The current TCP transfer verifies received files with SHA-256, but does not encrypt file contents. Use trusted local networks only until encryption is integrated.",
+                    text = "File chunks are encrypted with AES-GCM using an ECDH-derived session key, and received files are verified with SHA-256. Peer identity is not yet authenticated, so this does not prevent a man-in-the-middle attack; use trusted local networks.",
                     color = AeroTextSecondary,
                     fontSize = 12.sp
                 )
