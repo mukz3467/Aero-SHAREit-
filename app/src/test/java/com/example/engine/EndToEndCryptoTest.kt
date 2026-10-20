@@ -35,6 +35,27 @@ class EndToEndCryptoTest {
     }
 
     @Test
+    fun peersGenerateSameShortAuthenticationString() {
+        val sender = crypto.generateEphemeralKeyPair()
+        val receiver = crypto.generateEphemeralKeyPair()
+        val salt = ByteArray(32).also(SecureRandom()::nextBytes)
+        val transcript = "Aero-v1|session-42|both-peer-identities".toByteArray()
+        val senderKey = crypto.deriveSessionKey(sender.private, receiver.public, salt, transcript)
+        val receiverKey = crypto.deriveSessionKey(receiver.private, sender.public, salt, transcript)
+        try {
+            assertTrue(crypto.shortAuthenticationString(senderKey, transcript)
+                .matches(Regex("\\d{6}")))
+            assertArrayEquals(
+                crypto.shortAuthenticationString(senderKey, transcript).toByteArray(),
+                crypto.shortAuthenticationString(receiverKey, transcript).toByteArray()
+            )
+        } finally {
+            senderKey.fill(0)
+            receiverKey.fill(0)
+        }
+    }
+
+    @Test
     fun modifiedCiphertextOrAssociatedDataIsRejected() {
         val sender = crypto.generateEphemeralKeyPair()
         val receiver = crypto.generateEphemeralKeyPair()
