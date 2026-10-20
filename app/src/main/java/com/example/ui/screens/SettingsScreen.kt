@@ -82,7 +82,7 @@ fun SettingsScreen(
             title = { Text(text = "Clean App Cache & Temporary Parts?", fontWeight = FontWeight.Bold, color = AeroTextPrimary, fontSize = 17.sp) },
             text = {
                 Text(
-                    text = "This will clean ${uiState.cacheReport.formattedTotalCache} of cache, including ${uiState.cacheReport.abandonedTransfersCount} temporary transfer parts. Your downloaded files remain safe.",
+                    text = "This will clean ${uiState.cacheReport.formattedTotalCache} of cache, including temporary transfer files. Received files are currently stored in app cache and may be removed too; move anything important elsewhere before cleaning.",
                     color = AeroTextPrimary,
                     fontSize = 14.sp
                 )
