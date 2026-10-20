@@ -19,7 +19,8 @@ object TransferAutopilot {
         context: Context,
         batchBytes: Long,
         isPcPeer: Boolean,
-        isGroupSession: Boolean
+        isGroupSession: Boolean,
+        isLiteMode: Boolean = false
     ): AutopilotRecommendation {
         val (batteryPct, isCharging) = getBatteryStatus(context)
         val shouldLite = batteryPct < 20 && !isCharging
