@@ -8,6 +8,8 @@ import com.example.model.VerifiedReceipt
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
@@ -66,7 +68,7 @@ class AeroTransferServer(
         }
     }
 
-    private fun handleClient(socket: Socket) {
+    private suspend fun handleClient(socket: Socket) {
         socket.use { s ->
             s.tcpNoDelay = true
             s.soTimeout = AeroTransferProtocol.SOCKET_TIMEOUT_MS
@@ -91,8 +93,9 @@ class AeroTransferServer(
                 totalSizeFormatted = StorageSmartManager.formatBytes(totalBytes)
             )
 
-            var isAccepted = true
-            onIncomingRequest(req) { accepted -> isAccepted = accepted }
+            val approval = CompletableDeferred<Boolean>()
+            onIncomingRequest(req) { accepted -> approval.complete(accepted) }
+            val isAccepted = withTimeoutOrNull(30_000L) { approval.await() } ?: false
 
             output.writeBoolean(isAccepted)
             output.flush()
