@@ -167,13 +167,19 @@ fun SettingsScreen(
         }
 
         item {
-            SettingsToggleCard(
-                icon = Icons.Default.Lock,
-                title = "AES-GCM Handshake Encryption",
-                subtitle = "Encrypt file chunks in flight using ephemeral ECDH + AES-256-GCM",
-                isChecked = uiState.isEncryptionEnabled,
-                onCheckedChange = onToggleEncryption
-            )
+            Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)) {
+                Text(
+                    text = "Transfer encryption is not active yet",
+                    color = AeroTextPrimary,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 14.sp
+                )
+                Text(
+                    text = "The current TCP transfer verifies received files with SHA-256, but does not encrypt file contents. Use trusted local networks only until encryption is integrated.",
+                    color = AeroTextSecondary,
+                    fontSize = 12.sp
+                )
+            }
         }
 
         item {
