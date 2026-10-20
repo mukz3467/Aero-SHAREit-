@@ -179,18 +179,19 @@ class AeroTransferServer(
                 val checksumMatches = complete && FileIntegrityEngine.verifyChecksum(expectedSha, actualSha)
                 val totalMatches = i != filesCount - 1 || declaredBytes == totalBytes
                 val finalFile = AeroSecuritySanitizer.resolveUniqueFile(receivedDir, fileName)
+                val commitTemp = File(receivedDir, ".aero_receive_${UUID.randomUUID()}.part")
                 val isVerified = if (checksumMatches && totalMatches) {
                     try {
-                        tempFile.copyTo(finalFile, overwrite = false, bufferSize = AeroTransferProtocol.TURBO_CHUNK_SIZE)
-                        val savedSha = FileIntegrityEngine.calculateFileSha256(finalFile)
-                        if (FileIntegrityEngine.verifyChecksum(expectedSha, savedSha)) {
+                        tempFile.copyTo(commitTemp, overwrite = false, bufferSize = AeroTransferProtocol.TURBO_CHUNK_SIZE)
+                        val savedSha = FileIntegrityEngine.calculateFileSha256(commitTemp)
+                        if (FileIntegrityEngine.verifyChecksum(expectedSha, savedSha) && commitTemp.renameTo(finalFile)) {
                             true
                         } else {
-                            finalFile.delete()
+                            commitTemp.delete()
                             false
                         }
                     } catch (_: Exception) {
-                        finalFile.delete()
+                        commitTemp.delete()
                         false
                     }
                 } else {
