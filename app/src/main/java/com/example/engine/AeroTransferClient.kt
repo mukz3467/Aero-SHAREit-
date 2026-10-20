@@ -36,6 +36,9 @@ class AeroTransferClient(
     @Volatile
     private var isPaused = false
 
+    @Volatile
+    private var transferGeneration = 0L
+
     fun cancel() {
         isCancelled = true
         try {
@@ -54,13 +57,14 @@ class AeroTransferClient(
         localDeviceName: String,
         files: List<FileItem>
     ) {
-        isCancelled = false
-        isPaused = false
-
         if (clientJob?.isActive == true) {
             onError("A transfer is already active. Finish or cancel it before starting another.")
             return
         }
+        isCancelled = false
+        isPaused = false
+        transferGeneration += 1
+        val generation = transferGeneration
 
         clientJob = scope.launch {
             var activeSocket: Socket? = null
@@ -220,7 +224,7 @@ class AeroTransferClient(
                 onTransferFinished(receipt)
 
             } catch (ex: Exception) {
-                if (!isCancelled) onError("Transfer failed: ${ex.message}")
+                if (!isCancelled && generation == transferGeneration) onError("Transfer failed: ${ex.message}")
             } finally {
                 try { activeSocket?.close() } catch (_: Exception) {}
                 if (socket === activeSocket) socket = null
