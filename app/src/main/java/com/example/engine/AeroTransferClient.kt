@@ -70,6 +70,10 @@ class AeroTransferClient(
 
                 val sessionId = UUID.randomUUID().toString()
                 val stagedFiles = mutableListOf<Pair<FileItem, File>>()
+                var totalBytes = 0L
+                var transferredSoFar = 0L
+                var startTime = System.currentTimeMillis()
+                val receiptItems = mutableListOf<FileReceiptItem>()
                 try {
                     // Stage selected content to disk first so metadata and byte counts match
                     // the actual content and large files are never loaded fully into RAM.
@@ -98,7 +102,7 @@ class AeroTransferClient(
                         }
                     }
 
-                    val totalBytes = stagedFiles.sumOf { it.second.length() }
+                    totalBytes = stagedFiles.sumOf { it.second.length() }
                     output.writeInt(AeroTransferProtocol.MAGIC_HEADER)
                     output.writeUTF(localDeviceName)
                     output.writeInt(stagedFiles.size)
@@ -111,9 +115,8 @@ class AeroTransferClient(
                         return@launch
                     }
 
-                    var transferredSoFar = 0L
-                    val startTime = System.currentTimeMillis()
-                    val receiptItems = mutableListOf<FileReceiptItem>()
+                    transferredSoFar = 0L
+                    startTime = System.currentTimeMillis()
                     val buffer = ByteArray(AeroTransferProtocol.TURBO_CHUNK_SIZE)
 
                     for ((f, staged) in stagedFiles) {
