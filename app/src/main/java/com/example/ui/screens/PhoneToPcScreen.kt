@@ -182,7 +182,7 @@ fun PhoneToPcScreen(
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Icon(imageVector = Icons.Default.Computer, contentDescription = null, tint = AeroTextSecondary, modifier = Modifier.size(56.dp))
                             Spacer(modifier = Modifier.height(12.dp))
-                            Text("This bridge currently confirms a local connection only. File upload and download are not implemented yet.", color = AeroTextSecondary, fontSize = 13.sp)
+                            Text("When enabled, upload files from your PC to the phone and download received files in a browser. The bridge uses unencrypted HTTP, so use a trusted local network.", color = AeroTextSecondary, fontSize = 13.sp)
                         }
                     }
                 }
