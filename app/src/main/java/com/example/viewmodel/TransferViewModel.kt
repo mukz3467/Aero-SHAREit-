@@ -113,8 +113,9 @@ class TransferViewModel(application: Application) : AndroidViewModel(application
         serverEngine = AeroTransferServer(
             context = context,
             onIncomingRequest = { request, callback ->
-                val autoApproved = !_uiState.value.isSafeDropEnabled ||
-                    SafeDropManager.isDeviceTrusted(request.peerName)
+                // Peer names are self-asserted and not cryptographically authenticated.
+                // Never auto-approve by name alone; only the explicit SafeDrop-off setting bypasses approval.
+                val autoApproved = !_uiState.value.isSafeDropEnabled
                 if (autoApproved) {
                     _uiState.update { it.copy(pendingSafeDropRequest = null) }
                     callback(true)
