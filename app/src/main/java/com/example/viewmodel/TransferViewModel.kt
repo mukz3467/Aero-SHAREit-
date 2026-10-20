@@ -66,8 +66,8 @@ data class TransferUiState(
     val isPinRequired: Boolean = false,
     val isSafeDropEnabled: Boolean = true,
     val isBridgeServerActive: Boolean = false,
-    val bridgeUrl: String = "http://192.168.49.1:8844?token=882944",
-    val bridgeAuthToken: String = "882944",
+    val bridgeAuthToken: String = UUID.randomUUID().toString().replace("-", ""),
+    val bridgeUrl: String = "http://192.168.49.1:8844?token=$bridgeAuthToken",
     val pendingSafeDropRequest: SafeDropRequest? = null,
     val connectedPcClients: Int = 0,
     val autopilotRecommendation: String = "5GHz Turbo Link Active • AES-GCM Encrypted Handshake",
@@ -181,6 +181,7 @@ class TransferViewModel(application: Application) : AndroidViewModel(application
 
         pcBridgeServer = PhoneToPcBridgeServer(
             context = context,
+            authToken = _uiState.value.bridgeAuthToken,
             onClientConnected = { _ ->
                 _uiState.update { it.copy(connectedPcClients = it.connectedPcClients + 1) }
             }
