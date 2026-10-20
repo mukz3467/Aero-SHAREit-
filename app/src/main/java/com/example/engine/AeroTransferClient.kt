@@ -57,16 +57,24 @@ class AeroTransferClient(
         isCancelled = false
         isPaused = false
 
+        if (clientJob?.isActive == true) {
+            onError("A transfer is already active. Finish or cancel it before starting another.")
+            return
+        }
+
         clientJob = scope.launch {
+            var activeSocket: Socket? = null
             try {
-                socket = Socket().apply {
+                val connection = Socket().apply {
                     tcpNoDelay = true
                     soTimeout = AeroTransferProtocol.SOCKET_TIMEOUT_MS
                     connect(InetSocketAddress(targetIp, targetPort), 8000)
                 }
+                activeSocket = connection
+                socket = connection
 
-                val output = DataOutputStream(BufferedOutputStream(socket!!.getOutputStream(), AeroTransferProtocol.TURBO_CHUNK_SIZE))
-                val input = DataInputStream(BufferedInputStream(socket!!.getInputStream(), AeroTransferProtocol.TURBO_CHUNK_SIZE))
+                val output = DataOutputStream(BufferedOutputStream(connection.getOutputStream(), AeroTransferProtocol.TURBO_CHUNK_SIZE))
+                val input = DataInputStream(BufferedInputStream(connection.getInputStream(), AeroTransferProtocol.TURBO_CHUNK_SIZE))
 
                 val sessionId = UUID.randomUUID().toString()
                 val stagedFiles = mutableListOf<Pair<FileItem, File>>()
@@ -214,7 +222,8 @@ class AeroTransferClient(
             } catch (ex: Exception) {
                 if (!isCancelled) onError("Transfer failed: ${ex.message}")
             } finally {
-                try { socket?.close() } catch (_: Exception) {}
+                try { activeSocket?.close() } catch (_: Exception) {}
+                if (socket === activeSocket) socket = null
             }
         }
     }
