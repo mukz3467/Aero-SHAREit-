@@ -1,6 +1,7 @@
 package com.example.engine
 
 import android.content.Context
+import android.os.Environment
 import com.example.model.FileReceiptItem
 import com.example.model.TransferRecord
 import com.example.model.TransferStatus
@@ -18,6 +19,7 @@ import java.io.BufferedOutputStream
 import java.io.DataInputStream
 import java.io.DataOutputStream
 import java.io.File
+import java.io.IOException
 import java.net.ServerSocket
 import java.net.Socket
 import java.util.UUID
@@ -113,6 +115,13 @@ class AeroTransferServer(
             val startTime = System.currentTimeMillis()
 
             val tempDir = File(context.cacheDir, "transfers").apply { mkdirs() }
+            val receivedDir = (context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
+                ?: File(context.filesDir, "received")).apply {
+                if (!exists() && !mkdirs()) throw IOException("Cannot create received-files folder.")
+            }
+            if (!receivedDir.isDirectory || !receivedDir.canWrite()) {
+                throw IOException("Received-files folder is not writable.")
+            }
 
             var declaredBytes = 0L
             for (i in 0 until filesCount) {
@@ -169,16 +178,33 @@ class AeroTransferServer(
                 val actualSha = if (complete) FileIntegrityEngine.calculateFileSha256(tempFile) else ""
                 val checksumMatches = complete && FileIntegrityEngine.verifyChecksum(expectedSha, actualSha)
                 val totalMatches = i != filesCount - 1 || declaredBytes == totalBytes
-                val finalFile = AeroSecuritySanitizer.resolveUniqueFile(tempDir, fileName)
-                val isVerified = checksumMatches && totalMatches && tempFile.renameTo(finalFile)
-                if (!isVerified) tempFile.delete()
+                val finalFile = AeroSecuritySanitizer.resolveUniqueFile(receivedDir, fileName)
+                val isVerified = if (checksumMatches && totalMatches) {
+                    try {
+                        tempFile.copyTo(finalFile, overwrite = false, bufferSize = AeroTransferProtocol.TURBO_CHUNK_SIZE)
+                        val savedSha = FileIntegrityEngine.calculateFileSha256(finalFile)
+                        if (FileIntegrityEngine.verifyChecksum(expectedSha, savedSha)) {
+                            true
+                        } else {
+                            finalFile.delete()
+                            false
+                        }
+                    } catch (_: Exception) {
+                        finalFile.delete()
+                        false
+                    }
+                } else {
+                    false
+                }
+                tempFile.delete()
 
                 receiptItems.add(
                     FileReceiptItem(
                         fileName = fileName,
                         fileSizeBytes = fileSize,
                         sha256Checksum = actualSha,
-                        verified = isVerified
+                        verified = isVerified,
+                        localFilePath = if (isVerified) finalFile.absolutePath else null
                     )
                 )
 
