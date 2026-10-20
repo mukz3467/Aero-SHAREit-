@@ -193,7 +193,7 @@ private fun HomeHeaderSection(
                     )
                     Spacer(modifier = Modifier.width(4.dp))
                     Text(
-                        text = "5GHz Turbo",
+                        text = "Local Network",
                         color = AeroEmerald,
                         fontWeight = FontWeight.Bold,
                         fontSize = 11.sp
