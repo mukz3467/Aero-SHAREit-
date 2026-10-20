@@ -636,8 +636,19 @@ class TransferViewModel(application: Application) : AndroidViewModel(application
 
     fun cleanAppTemporaryCache(cleanAll: Boolean = true) {
         viewModelScope.launch {
-            val activeName = _uiState.value.activeTransferRecord?.fileName
-            val activeSet = if (activeName != null) setOf(activeName) else emptySet()
+            val activeRecord = _uiState.value.activeTransferRecord
+            val transferIsActive = activeRecord?.status in setOf(
+                TransferStatus.WAITING_ACCEPT,
+                TransferStatus.HANDSHAKING,
+                TransferStatus.TRANSFERRING,
+                TransferStatus.PAUSED,
+                TransferStatus.VERIFYING
+            )
+            val activeSet = if (transferIsActive && activeRecord != null) {
+                setOf(activeRecord.fileName)
+            } else {
+                emptySet()
+            }
 
             val result = FileManagerAndCleanerEngine.cleanAppTemporaryCache(
                 context = getApplication(),
