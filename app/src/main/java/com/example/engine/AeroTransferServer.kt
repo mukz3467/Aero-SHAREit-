@@ -176,24 +176,32 @@ class AeroTransferServer(
                 val fileName = AeroSecuritySanitizer.sanitizeFilename(input.readUTF())
                 val fileSize = input.readLong()
                 val expectedSha = input.readUTF()
-                if (fileSize < 0L || fileSize > totalBytes - declaredBytes) {
+                if (fileSize < 0L || fileSize > totalBytes - declaredBytes ||
+                    !expectedSha.matches(Regex("^[0-9a-fA-F]{64}$"))) {
                     output.writeBoolean(false)
                     output.flush()
                     return
                 }
 
                 declaredBytes += fileSize
-                // Stage in the destination directory so the final rename stays on the same filesystem.
-                val tempFile = File(receivedDir, ".aero_receive_${UUID.randomUUID()}.part").canonicalFile
+                // Resume only a partial file with the same expected SHA-256 content.
+                val tempFile = File(receivedDir, ".aero_resume_${expectedSha.lowercase()}.part").canonicalFile
                 if (tempFile.parentFile != receivedDir.canonicalFile) {
                     output.writeBoolean(false)
                     output.flush()
                     return
                 }
+                if (tempFile.exists() && (tempFile.length() > fileSize || fileSize == 0L)) {
+                    tempFile.delete()
+                }
+                val resumeOffset = if (tempFile.isFile) tempFile.length() else 0L
+                output.writeLong(resumeOffset)
+                output.flush()
 
-                var fileTransferred = 0L
+                var fileTransferred = resumeOffset
+                transferredSoFar += resumeOffset
                 try {
-                    tempFile.outputStream().use { fos ->
+                    java.io.FileOutputStream(tempFile, resumeOffset > 0L).use { fos ->
                         while (fileTransferred < fileSize) {
                             val plainLength = input.readInt()
                             if (plainLength !in 1..AeroTransferProtocol.TURBO_CHUNK_SIZE ||
@@ -233,7 +241,10 @@ class AeroTransferServer(
                         }
                     }
                 } catch (ex: Exception) {
-                    tempFile.delete()
+                    // Keep a non-empty, incomplete verified-prefix candidate so a retry can resume.
+                    if (!tempFile.isFile || tempFile.length() <= 0L || tempFile.length() >= fileSize) {
+                        tempFile.delete()
+                    }
                     throw ex
                 }
 
