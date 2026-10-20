@@ -9,6 +9,7 @@ import com.example.engine.CacheUsageReport
 import com.example.engine.FileIntegrityEngine
 import com.example.engine.FileManagerAndCleanerEngine
 import com.example.engine.LocalMediaStoreExplorer
+import com.example.engine.NearbyDeviceDiscovery
 import com.example.engine.PhoneToPcBridgeServer
 import com.example.engine.SafeDropManager
 import com.example.engine.SafeDropRequest
@@ -92,6 +93,7 @@ class TransferViewModel(application: Application) : AndroidViewModel(application
     private var serverEngine: AeroTransferServer? = null
     private var clientEngine: AeroTransferClient? = null
     private var pcBridgeServer: PhoneToPcBridgeServer? = null
+    private var discoveryEngine: NearbyDeviceDiscovery? = null
     @Volatile private var pendingSafeDropApproval: ((Boolean) -> Unit)? = null
 
     init {
@@ -189,11 +191,22 @@ class TransferViewModel(application: Application) : AndroidViewModel(application
                 _uiState.update { it.copy(connectedPcClients = it.connectedPcClients + 1) }
             }
         )
+
+        // Start the actual TCP receiver; do not rely on demo peers or simulated transfers.
+        serverEngine?.start()
     }
 
     private fun initNearbyDevices() {
-        // Never display fabricated peers as if they were real devices.
-        _uiState.update { it.copy(nearbyDevices = emptyList()) }
+        discoveryEngine = NearbyDeviceDiscovery(
+            deviceNameProvider = { _uiState.value.deviceName },
+            onDevicesChanged = { devices ->
+                _uiState.update { state ->
+                    state.copy(nearbyDevices = devices, selectedPeer = state.selectedPeer?.let { selected ->
+                        devices.firstOrNull { it.id == selected.id }
+                    })
+                }
+            }
+        ).also { it.start() }
     }
 
     private fun updateAutopilot() {
@@ -607,6 +620,7 @@ class TransferViewModel(application: Application) : AndroidViewModel(application
     override fun onCleared() {
         super.onCleared()
         serverEngine?.stop()
+        discoveryEngine?.stop()
         pcBridgeServer?.stop()
         clientEngine?.cancel()
     }
