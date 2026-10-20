@@ -68,83 +68,119 @@ class AeroTransferClient(
                 val output = DataOutputStream(BufferedOutputStream(socket!!.getOutputStream(), AeroTransferProtocol.TURBO_CHUNK_SIZE))
                 val input = DataInputStream(BufferedInputStream(socket!!.getInputStream(), AeroTransferProtocol.TURBO_CHUNK_SIZE))
 
-                val totalBytes = files.sumOf { it.sizeBytes }
                 val sessionId = UUID.randomUUID().toString()
-
-                output.writeInt(AeroTransferProtocol.MAGIC_HEADER)
-                output.writeUTF(localDeviceName)
-                output.writeInt(files.size)
-                output.writeLong(totalBytes)
-                output.flush()
-
-                val accepted = input.readBoolean()
-                if (!accepted) {
-                    onError("Transfer request rejected by peer.")
-                    return@launch
-                }
-
-                var transferredSoFar = 0L
-                val startTime = System.currentTimeMillis()
-                val receiptItems = mutableListOf<FileReceiptItem>()
-
-                for (f in files) {
-                    if (isCancelled) break
-
-                    val uri = f.uri ?: throw IOException("Cannot open the selected file: ${f.name}")
-                    val stream = context.contentResolver.openInputStream(uri)
-                        ?: throw IOException("Cannot read the selected file: ${f.name}")
-                    val sampleBytes = stream.use { it.readBytes() }
-                    val checksum = FileIntegrityEngine.calculateSha256(sampleBytes)
-
-                    output.writeUTF(f.name)
-                    output.writeLong(sampleBytes.size.toLong())
-                    output.writeUTF(checksum)
-                    output.flush()
-
-                    var fileOffset = 0
-                    val buffer = ByteArray(AeroTransferProtocol.TURBO_CHUNK_SIZE)
-                    while (fileOffset < sampleBytes.size) {
-                        while (isPaused && !isCancelled) {
-                            Thread.sleep(100)
+                val stagedFiles = mutableListOf<Pair<FileItem, File>>()
+                try {
+                    // Stage selected content to disk first so metadata and byte counts match
+                    // the actual content and large files are never loaded fully into RAM.
+                    for (item in files) {
+                        if (isCancelled) throw IOException("Transfer cancelled.")
+                        val uri = item.uri ?: throw IOException("Cannot open the selected file: ${item.name}")
+                        val source = context.contentResolver.openInputStream(uri)
+                            ?: throw IOException("Cannot read the selected file: ${item.name}")
+                        val staged = File.createTempFile("aero_send_", ".part", context.cacheDir)
+                        try {
+                            source.use { inputStream ->
+                                staged.outputStream().buffered(AeroTransferProtocol.TURBO_CHUNK_SIZE).use { out ->
+                                    val copyBuffer = ByteArray(AeroTransferProtocol.TURBO_CHUNK_SIZE)
+                                    while (true) {
+                                        if (isCancelled) throw IOException("Transfer cancelled.")
+                                        val count = inputStream.read(copyBuffer)
+                                        if (count < 0) break
+                                        out.write(copyBuffer, 0, count)
+                                    }
+                                }
+                            }
+                            stagedFiles.add(item to staged)
+                        } catch (ex: Exception) {
+                            staged.delete()
+                            throw ex
                         }
-                        if (isCancelled) break
-
-                        val len = Math.min(buffer.size, sampleBytes.size - fileOffset)
-                        System.arraycopy(sampleBytes, fileOffset, buffer, 0, len)
-                        output.write(buffer, 0, len)
-                        output.flush()
-
-                        fileOffset += len
-                        transferredSoFar += len
-
-                        val elapsedSec = Math.max(0.1, (System.currentTimeMillis() - startTime) / 1000.0)
-                        val speed = ((transferredSoFar * 8f) / (elapsedSec * 1024 * 1024)).toFloat()
-
-                        val record = TransferRecord(
-                            id = sessionId,
-                            fileName = f.name,
-                            fileSizeFormatted = StorageSmartManager.formatBytes(totalBytes),
-                            totalBytes = totalBytes,
-                            transferredBytes = transferredSoFar,
-                            progress = (transferredSoFar.toFloat() / Math.max(1L, totalBytes)).coerceIn(0f, 1f),
-                            speedMbps = speed,
-                            isIncoming = false,
-                            peerName = targetIp,
-                            status = TransferStatus.TRANSFERRING,
-                            contentUriString = f.uri?.toString()
-                        )
-                        onProgressUpdate(record)
                     }
 
-                    val verifiedByPeer = input.readBoolean()
-                    receiptItems.add(
-                        FileReceiptItem(
-                            fileName = f.name,
-                            fileSizeBytes = sampleBytes.size.toLong(),
-                            sha256Checksum = checksum,
-                            verified = verifiedByPeer
+                    val totalBytes = stagedFiles.sumOf { it.second.length() }
+                    output.writeInt(AeroTransferProtocol.MAGIC_HEADER)
+                    output.writeUTF(localDeviceName)
+                    output.writeInt(stagedFiles.size)
+                    output.writeLong(totalBytes)
+                    output.flush()
+
+                    val accepted = input.readBoolean()
+                    if (!accepted) {
+                        onError("Transfer request rejected by peer.")
+                        return@launch
+                    }
+
+                    var transferredSoFar = 0L
+                    val startTime = System.currentTimeMillis()
+                    val receiptItems = mutableListOf<FileReceiptItem>()
+                    val buffer = ByteArray(AeroTransferProtocol.TURBO_CHUNK_SIZE)
+
+                    for ((f, staged) in stagedFiles) {
+                        if (isCancelled) break
+                        val fileSize = staged.length()
+                        val digest = java.security.MessageDigest.getInstance("SHA-256")
+                        staged.inputStream().buffered(AeroTransferProtocol.TURBO_CHUNK_SIZE).use { fileInput ->
+                            while (true) {
+                                val count = fileInput.read(buffer)
+                                if (count < 0) break
+                                digest.update(buffer, 0, count)
+                            }
+                        }
+                        val checksum = digest.digest().joinToString("") { "%02x".format(it) }
+
+                        output.writeUTF(f.name)
+                        output.writeLong(fileSize)
+                        output.writeUTF(checksum)
+                        output.flush()
+
+                        var fileOffset = 0L
+                        staged.inputStream().buffered(AeroTransferProtocol.TURBO_CHUNK_SIZE).use { fileInput ->
+                            while (true) {
+                                while (isPaused && !isCancelled) {
+                                    kotlinx.coroutines.delay(100)
+                                }
+                                if (isCancelled) break
+                                val count = fileInput.read(buffer)
+                                if (count < 0) break
+                                output.write(buffer, 0, count)
+                                fileOffset += count
+                                transferredSoFar += count
+
+                                val elapsedSec = Math.max(0.1, (System.currentTimeMillis() - startTime) / 1000.0)
+                                val speed = ((transferredSoFar * 8f) / (elapsedSec * 1024 * 1024)).toFloat()
+                                onProgressUpdate(
+                                    TransferRecord(
+                                        id = sessionId,
+                                        fileName = f.name,
+                                        fileSizeFormatted = StorageSmartManager.formatBytes(totalBytes),
+                                        totalBytes = totalBytes,
+                                        transferredBytes = transferredSoFar,
+                                        progress = (transferredSoFar.toFloat() / Math.max(1L, totalBytes)).coerceIn(0f, 1f),
+                                        speedMbps = speed,
+                                        isIncoming = false,
+                                        peerName = targetIp,
+                                        status = TransferStatus.TRANSFERRING,
+                                        contentUriString = f.uri?.toString()
+                                    )
+                                )
+                            }
+                        }
+                        output.flush()
+                        if (isCancelled) break
+
+                        val verifiedByPeer = input.readBoolean()
+                        receiptItems.add(
+                            FileReceiptItem(
+                                fileName = f.name,
+                                fileSizeBytes = fileSize,
+                                sha256Checksum = checksum,
+                                verified = verifiedByPeer
+                            )
                         )
-                    )
+                    }
+                } finally {
+                    stagedFiles.forEach { (_, staged) -> staged.delete() }
                 }
 
                 val totalSec = Math.max(1, ((System.currentTimeMillis() - startTime) / 1000).toInt())
