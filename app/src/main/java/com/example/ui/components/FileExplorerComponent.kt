@@ -126,6 +126,17 @@ fun FileExplorerComponent(
         }
     }
 
+    val duplicateFileIds = remember(files) {
+        files.groupBy { "${it.name.trim().lowercase()}|${it.sizeBytes}" }
+            .values
+            .filter { it.size > 1 }
+            .flatten()
+            .map { it.id }
+            .toSet()
+    }
+    val selectedDuplicateCount = files.count {
+        selectedFileIds.contains(it.id) && duplicateFileIds.contains(it.id)
+    }
     val selectedCount = selectedFileIds.size
     val selectedTotalBytes = remember(selectedFileIds, files) {
         files.filter { selectedFileIds.contains(it.id) }.sumOf { it.sizeBytes }
@@ -273,7 +284,7 @@ fun FileExplorerComponent(
             AeroCardBox(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(60.dp),
+                    .height(if (selectedDuplicateCount > 0) 78.dp else 60.dp),
                 backgroundColor = AeroCardElevated,
                 borderColor = AeroEmerald,
                 shape = RoundedCornerShape(18.dp)
@@ -292,11 +303,19 @@ fun FileExplorerComponent(
                             fontWeight = FontWeight.Bold,
                             fontSize = 13.sp
                         )
-                        Text(
-                            text = "Direct 5GHz Offline Socket",
-                            color = AeroSecondaryGreen,
-                            fontSize = 11.sp
-                        )
+                        if (selectedDuplicateCount > 0) {
+                            Text(
+                                text = "Potential duplicates: $selectedDuplicateCount selected",
+                                color = AeroOrangeAccent,
+                                fontSize = 10.sp
+                            )
+                        } else {
+                            Text(
+                                text = "Direct local-network transfer",
+                                color = AeroSecondaryGreen,
+                                fontSize = 11.sp
+                            )
+                        }
                     }
 
                     Button(
