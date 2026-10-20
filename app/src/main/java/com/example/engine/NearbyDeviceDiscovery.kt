@@ -13,7 +13,7 @@ import java.net.DatagramSocket
 import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.NetworkInterface
-import java.util.Base64
+import android.util.Base64
 import java.util.Collections
 import java.util.UUID
 
@@ -60,8 +60,10 @@ class NearbyDeviceDiscovery(
                 while (isActive && !stopped && !udp.isClosed) {
                     val now = System.currentTimeMillis()
                     if (now - lastBroadcast >= 2000L) {
-                        val safeName = Base64.getUrlEncoder().withoutPadding()
-                            .encodeToString(deviceNameProvider().take(80).toByteArray(Charsets.UTF_8))
+                        val safeName = Base64.encodeToString(
+                            deviceNameProvider().take(80).toByteArray(Charsets.UTF_8),
+                            Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING
+                        )
                         val message = "$MAGIC|$instanceId|$tcpPort|$safeName".toByteArray(Charsets.UTF_8)
                         val packet = DatagramPacket(message, message.size)
                         try {
@@ -83,7 +85,7 @@ class NearbyDeviceDiscovery(
                         if (parts.size == 4 && parts[0] == MAGIC && parts[1] != instanceId) {
                             val peerPort = parts[2].toIntOrNull()
                             val peerName = try {
-                                String(Base64.getUrlDecoder().decode(parts[3]), Charsets.UTF_8)
+                                String(Base64.decode(parts[3], Base64.URL_SAFE or Base64.NO_WRAP), Charsets.UTF_8)
                             } catch (_: Exception) {
                                 ""
                             }
