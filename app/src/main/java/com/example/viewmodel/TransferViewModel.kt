@@ -237,7 +237,8 @@ class TransferViewModel(application: Application) : AndroidViewModel(application
             context = getApplication(),
             batchBytes = selectedBytes,
             isPcPeer = state.currentScreen == ActiveScreen.PHONE_TO_PC,
-            isGroupSession = state.currentScreen == ActiveScreen.GROUP_ROOM
+            isGroupSession = state.currentScreen == ActiveScreen.GROUP_ROOM,
+            isLiteMode = state.isLiteMode
         )
         _uiState.update {
             it.copy(autopilotRecommendation = "${recommendation.recommendedBand} • ${recommendation.recommendedMode}")
