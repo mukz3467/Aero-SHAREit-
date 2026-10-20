@@ -637,7 +637,7 @@ class TransferViewModel(application: Application) : AndroidViewModel(application
     fun cleanAppTemporaryCache(cleanAll: Boolean = true) {
         viewModelScope.launch {
             val activeRecord = _uiState.value.activeTransferRecord
-            val transferIsActive = activeRecord?.status in setOf(
+            val transferIsActive = activeRecord != null && activeRecord.status in setOf(
                 TransferStatus.WAITING_ACCEPT,
                 TransferStatus.HANDSHAKING,
                 TransferStatus.TRANSFERRING,
