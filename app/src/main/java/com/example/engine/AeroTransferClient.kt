@@ -84,8 +84,8 @@ class AeroTransferClient(
                 activeSocket = connection
                 socket = connection
 
-                val output = DataOutputStream(BufferedOutputStream(connection.getOutputStream(), AeroTransferProtocol.TURBO_CHUNK_SIZE))
-                val input = DataInputStream(BufferedInputStream(connection.getInputStream(), AeroTransferProtocol.TURBO_CHUNK_SIZE))
+                val output = DataOutputStream(BufferedOutputStream(connection.getOutputStream(), transferChunkSize))
+                val input = DataInputStream(BufferedInputStream(connection.getInputStream(), transferChunkSize))
 
                 val sessionId = UUID.randomUUID().toString()
                 val stagedFiles = mutableListOf<Pair<FileItem, File>>()
@@ -106,8 +106,8 @@ class AeroTransferClient(
                         val staged = File.createTempFile("aero_send_", ".part", context.cacheDir)
                         try {
                             source.use { inputStream ->
-                                staged.outputStream().buffered(AeroTransferProtocol.TURBO_CHUNK_SIZE).use { out ->
-                                    val copyBuffer = ByteArray(AeroTransferProtocol.TURBO_CHUNK_SIZE)
+                                staged.outputStream().buffered(transferChunkSize).use { out ->
+                                    val copyBuffer = ByteArray(transferChunkSize)
                                     while (true) {
                                         if (isCancelled) throw IOException("Transfer cancelled.")
                                         val count = inputStream.read(copyBuffer)
@@ -159,7 +159,7 @@ class AeroTransferClient(
                         if (isCancelled) break
                         val fileSize = staged.length()
                         val digest = java.security.MessageDigest.getInstance("SHA-256")
-                        staged.inputStream().buffered(AeroTransferProtocol.TURBO_CHUNK_SIZE).use { fileInput ->
+                        staged.inputStream().buffered(transferChunkSize).use { fileInput ->
                             while (true) {
                                 val count = fileInput.read(buffer)
                                 if (count < 0) break
