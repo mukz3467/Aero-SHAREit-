@@ -225,11 +225,15 @@ class TransferViewModel(application: Application) : AndroidViewModel(application
     }
 
     private fun updateAutopilot() {
+        val state = _uiState.value
+        val selectedBytes = state.availableFiles
+            .filter { state.selectedFiles.contains(it.id) }
+            .sumOf { it.sizeBytes }
         val recommendation = TransferAutopilot.analyzeAndRecommend(
             context = getApplication(),
-            batchBytes = 350_000_000L,
-            isPcPeer = false,
-            isGroupSession = false
+            batchBytes = selectedBytes,
+            isPcPeer = state.currentScreen == ActiveScreen.PHONE_TO_PC,
+            isGroupSession = state.currentScreen == ActiveScreen.GROUP_ROOM
         )
         _uiState.update {
             it.copy(autopilotRecommendation = "${recommendation.recommendedBand} • ${recommendation.recommendedMode}")
@@ -249,11 +253,13 @@ class TransferViewModel(application: Application) : AndroidViewModel(application
                     categorySizes = scanResult.categorySizes
                 )
             }
+            updateAutopilot()
         }
     }
 
     fun navigateTo(screen: ActiveScreen) {
         _uiState.update { it.copy(currentScreen = screen) }
+        updateAutopilot()
     }
 
     fun selectCategory(category: FileCategory) {
@@ -266,6 +272,7 @@ class TransferViewModel(application: Application) : AndroidViewModel(application
             if (set.contains(fileId)) set.remove(fileId) else set.add(fileId)
             state.copy(selectedFiles = set)
         }
+        updateAutopilot()
     }
 
     fun selectAllFilesInCategory(category: FileCategory) {
@@ -279,10 +286,12 @@ class TransferViewModel(application: Application) : AndroidViewModel(application
             }
             state.copy(selectedFiles = set)
         }
+        updateAutopilot()
     }
 
     fun clearSelectedFiles() {
         _uiState.update { it.copy(selectedFiles = emptySet()) }
+        updateAutopilot()
     }
 
     fun startTransferToPeer(peer: NearbyDevice) {
