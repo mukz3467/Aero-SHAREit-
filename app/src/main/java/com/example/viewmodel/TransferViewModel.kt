@@ -153,8 +153,10 @@ class TransferViewModel(application: Application) : AndroidViewModel(application
             onTransferFinished = { receipt ->
                 addVerifiedReceipt(receipt)
                 val cur = _uiState.value.activeTransferRecord
+                val allFilesVerified = receipt.fileReceiptItems.isNotEmpty() && receipt.fileReceiptItems.all { it.verified }
+                val finalStatus = if (allFilesVerified) TransferStatus.COMPLETED else TransferStatus.FAILED
                 val finalRecord = cur?.copy(
-                    status = TransferStatus.COMPLETED,
+                    status = finalStatus,
                     transferredBytes = receipt.totalBytesTransferred,
                     progress = 1.0f,
                     speedMbps = receipt.averageSpeedMbps
@@ -168,7 +170,7 @@ class TransferViewModel(application: Application) : AndroidViewModel(application
                     speedMbps = receipt.averageSpeedMbps,
                     isIncoming = false,
                     peerName = receipt.peerDeviceName,
-                    status = TransferStatus.COMPLETED
+                    status = finalStatus
                 )
                 onTransferRecordCompleted(finalRecord, isOutgoing = true)
             },
