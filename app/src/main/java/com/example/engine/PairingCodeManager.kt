@@ -1,111 +1,145 @@
 package com.example.engine
 
-import java.security.SecureRandom
-import java.util.Base64
-
 /**
- * Local, in-memory pairing-code lifecycle for Aero TrustLink.
+ * Platform-independent routing table for Aero's offline, multi-hop mesh layer.
  *
- * This helper manages short-lived pairing invitations only. It does not discover
- * radios, authenticate a remote peer, perform a handshake, or encrypt files.
- * A successful code check must be followed by authenticated key exchange and
- * explicit receiver approval. Never derive an encryption key from the PIN.
- *
- * Keep one instance per active pairing flow. For distributed PIN discovery,
- * the transport must securely advertise the invitation and rate-limit attempts
- * across the whole invitation, not just within one process.
+ * This class does not create radio links. A transport (for example Wi-Fi Direct)
+ * must establish a direct link to each neighbor and exchange advertisements.
  */
-class PairingCodeManager(
-    private val random: SecureRandom = SecureRandom(),
-    private val lifetimeMillis: Long = DEFAULT_LIFETIME_MS,
-    private val maxAttempts: Int = DEFAULT_MAX_ATTEMPTS
+class OfflineMeshRouter(
+    private val nodeId: String,
+    private val routeTtlMillis: Long = DEFAULT_ROUTE_TTL_MS,
+    private val seenMessageTtlMillis: Long = DEFAULT_SEEN_TTL_MS,
+    private val maxHops: Int = DEFAULT_MAX_HOPS
 ) {
-    data class Invitation internal constructor(
-        val method: Method,
-        val code: String,
+    data class Route(
+        val destinationId: String,
+        val nextHopId: String,
+        val hopCount: Int,
         val expiresAtMillis: Long
     )
 
-    enum class Method { PIN, QR }
+    data class Advertisement(val destinationId: String, val hopCount: Int)
 
-    private var active: Invitation? = null
-    private var attempts = 0
+    data class RelayEnvelope(
+        val messageId: String,
+        val sourceId: String,
+        val destinationId: String,
+        val hopLimit: Int,
+        val payload: ByteArray
+    )
 
-    init {
-        require(lifetimeMillis in 1_000L..MAX_LIFETIME_MS) { "Invalid invitation lifetime." }
-        require(maxAttempts in 1..20) { "Invalid attempt limit." }
+    private val directPeers = linkedSetOf<String>()
+    private val routes = linkedMapOf<String, Route>()
+    private val seenMessages = linkedMapOf<String, Long>()
+
+    @Synchronized
+    fun addDirectPeer(peerId: String, nowMillis: Long = System.currentTimeMillis()) {
+        require(peerId.isNotBlank() && peerId != nodeId) { "Invalid peer id." }
+        directPeers.add(peerId)
+        routes[peerId] = Route(peerId, peerId, 1, nowMillis + routeTtlMillis)
     }
 
     @Synchronized
-    fun createPin(nowMillis: Long = System.currentTimeMillis()): Invitation {
-        val number = random.nextInt(PIN_SPACE)
-        val invitation = Invitation(Method.PIN, number.toString().padStart(PIN_DIGITS, '0'), nowMillis + lifetimeMillis)
-        active = invitation
-        attempts = 0
-        return invitation
-    }
-
-    /**
-     * QR invitation carries a high-entropy, URL-safe random token, not a 6-digit PIN.
-     * The caller should encode a versioned payload and must not put personal data in it.
-     */
-    @Synchronized
-    fun createQrToken(nowMillis: Long = System.currentTimeMillis()): Invitation {
-        val bytes = ByteArray(QR_TOKEN_BYTES).also(random::nextBytes)
-        val token = Base64.getUrlEncoder().withoutPadding().encodeToString(bytes)
-        bytes.fill(0)
-        val invitation = Invitation(Method.QR, token, nowMillis + lifetimeMillis)
-        active = invitation
-        attempts = 0
-        return invitation
+    fun removeDirectPeer(peerId: String) {
+        directPeers.remove(peerId)
+        routes.entries.removeAll { it.key == peerId || it.value.nextHopId == peerId }
     }
 
     /**
-     * Returns true once only, while the invitation is unexpired and attempts remain.
-     * Caller MUST still perform authenticated ECDH and require receiver approval.
+     * Learn a destination advertised by a directly connected neighbor.
+     * Advertisements claiming this node as a destination are ignored to avoid loops.
      */
     @Synchronized
-    fun consume(candidate: String, nowMillis: Long = System.currentTimeMillis()): Boolean {
-        val invitation = active ?: return false
-        if (nowMillis >= invitation.expiresAtMillis || attempts >= maxAttempts) {
-            clear()
-            return false
+    fun learnAdvertisement(
+        fromPeerId: String,
+        advertisement: Advertisement,
+        nowMillis: Long = System.currentTimeMillis()
+    ): Boolean {
+        if (fromPeerId !in directPeers) return false
+        if (advertisement.destinationId.isBlank() || advertisement.destinationId == nodeId) return false
+        if (advertisement.destinationId == fromPeerId) return false
+        if (advertisement.hopCount < 1 || advertisement.hopCount >= maxHops) return false
+
+        val candidate = Route(
+            destinationId = advertisement.destinationId,
+            nextHopId = fromPeerId,
+            hopCount = advertisement.hopCount + 1,
+            expiresAtMillis = nowMillis + routeTtlMillis
+        )
+        val current = routes[advertisement.destinationId]
+        val shouldReplace = current == null ||
+            current.expiresAtMillis <= nowMillis ||
+            candidate.hopCount < current.hopCount ||
+            (candidate.hopCount == current.hopCount && candidate.expiresAtMillis > current.expiresAtMillis)
+
+        if (shouldReplace) routes[advertisement.destinationId] = candidate
+        return shouldReplace
+    }
+
+    @Synchronized
+    fun routeFor(destinationId: String, nowMillis: Long = System.currentTimeMillis()): Route? {
+        prune(nowMillis)
+        if (destinationId == nodeId) return null
+        return routes[destinationId]
+    }
+
+    /** Advertisements to send to a neighbor; never advertise a route back through that neighbor. */
+    @Synchronized
+    fun advertisementsFor(peerId: String, nowMillis: Long = System.currentTimeMillis()): List<Advertisement> {
+        prune(nowMillis)
+        return routes.values
+            .asSequence()
+            .filter { it.destinationId != peerId && it.nextHopId != peerId }
+            .filter { it.hopCount < maxHops }
+            .map { Advertisement(it.destinationId, it.hopCount) }
+            .distinctBy { it.destinationId }
+            .toList()
+    }
+
+    /**
+     * Returns true only once per message ID during the deduplication window.
+     * Callers must also check that hopLimit > 0 and that a route exists before relaying.
+     */
+    @Synchronized
+    fun markMessageSeen(messageId: String, nowMillis: Long = System.currentTimeMillis()): Boolean {
+        if (messageId.isBlank()) return false
+        pruneSeen(nowMillis)
+        if (seenMessages.containsKey(messageId)) return false
+        seenMessages[messageId] = nowMillis + seenMessageTtlMillis
+        while (seenMessages.size > MAX_SEEN_MESSAGES) {
+            val oldest = seenMessages.entries.minByOrNull { it.value }?.key ?: break
+            seenMessages.remove(oldest)
         }
-        if (candidate != invitation.code) {
-            attempts++
-            if (attempts >= maxAttempts) clear()
-            return false
-        }
-        clear()
         return true
     }
 
-    @Synchronized
-    fun invalidate() {
-        clear()
+    fun prepareRelay(envelope: RelayEnvelope, nowMillis: Long = System.currentTimeMillis()): RelayEnvelope? {
+        if (envelope.destinationId == nodeId || envelope.hopLimit <= 1) return null
+        if (!markMessageSeen(envelope.messageId, nowMillis)) return null
+        if (routeFor(envelope.destinationId, nowMillis) == null) return null
+        return envelope.copy(hopLimit = envelope.hopLimit - 1)
     }
 
     @Synchronized
-    fun attemptsRemaining(nowMillis: Long = System.currentTimeMillis()): Int {
-        val invitation = active ?: return 0
-        if (nowMillis >= invitation.expiresAtMillis) {
-            clear()
-            return 0
+    private fun prune(nowMillis: Long) {
+        routes.entries.removeAll { it.value.expiresAtMillis <= nowMillis }
+        directPeers.forEach { peer ->
+            if (peer !in routes) {
+                routes[peer] = Route(peer, peer, 1, nowMillis + routeTtlMillis)
+            }
         }
-        return (maxAttempts - attempts).coerceAtLeast(0)
+        pruneSeen(nowMillis)
     }
 
-    private fun clear() {
-        active = null
-        attempts = 0
+    private fun pruneSeen(nowMillis: Long) {
+        seenMessages.entries.removeAll { it.value <= nowMillis }
     }
 
     companion object {
-        const val PIN_DIGITS = 6
-        const val DEFAULT_LIFETIME_MS = 120_000L
-        const val MAX_LIFETIME_MS = 300_000L
-        const val DEFAULT_MAX_ATTEMPTS = 5
-        private const val PIN_SPACE = 1_000_000
-        private const val QR_TOKEN_BYTES = 32
+        const val DEFAULT_MAX_HOPS = 8
+        const val DEFAULT_ROUTE_TTL_MS = 30_000L
+        const val DEFAULT_SEEN_TTL_MS = 60_000L
+        const val MAX_SEEN_MESSAGES = 2_048
     }
 }
