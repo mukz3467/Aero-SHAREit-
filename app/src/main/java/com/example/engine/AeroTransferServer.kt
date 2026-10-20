@@ -108,12 +108,21 @@ class AeroTransferServer(
             val tempDir = File(context.cacheDir, "transfers").apply { mkdirs() }
 
             for (i in 0 until filesCount) {
-                val fileName = input.readUTF()
+                val fileName = AeroSecuritySanitizer.sanitizeFilename(input.readUTF())
                 val fileSize = input.readLong()
                 val expectedSha = input.readUTF()
+                if (fileSize < 0L || fileSize > totalBytes) {
+                    output.writeBoolean(false)
+                    output.flush()
+                    return
+                }
 
-                val tempFile = File(tempDir, "${fileName}.part")
-                tempFile.parentFile?.mkdirs()
+                val tempFile = File(tempDir, "${fileName}.part").canonicalFile
+                if (tempFile.parentFile != tempDir.canonicalFile) {
+                    output.writeBoolean(false)
+                    output.flush()
+                    return
+                }
 
                 var fileTransferred = 0L
                 tempFile.outputStream().use { fos ->
@@ -146,12 +155,13 @@ class AeroTransferServer(
                     }
                 }
 
-                // Verify SHA-256
-                val actualSha = FileIntegrityEngine.calculateFileSha256(tempFile)
-                val isVerified = FileIntegrityEngine.verifyChecksum(expectedSha, actualSha)
-
+                // Commit only a complete file whose checksum matches.
+                val complete = fileTransferred == fileSize
+                val actualSha = if (complete) FileIntegrityEngine.calculateFileSha256(tempFile) else ""
+                val checksumMatches = complete && FileIntegrityEngine.verifyChecksum(expectedSha, actualSha)
                 val finalFile = AeroSecuritySanitizer.resolveUniqueFile(tempDir, fileName)
-                tempFile.renameTo(finalFile)
+                val isVerified = checksumMatches && tempFile.renameTo(finalFile)
+                if (!isVerified) tempFile.delete()
 
                 receiptItems.add(
                     FileReceiptItem(
