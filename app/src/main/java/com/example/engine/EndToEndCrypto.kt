@@ -1,10 +1,8 @@
 package com.example.engine
 
-import java.nio.ByteBuffer
 import java.security.KeyFactory
 import java.security.KeyPair
 import java.security.KeyPairGenerator
-import java.security.MessageDigest
 import java.security.PublicKey
 import java.security.SecureRandom
 import java.security.spec.X509EncodedKeySpec
@@ -86,6 +84,27 @@ class EndToEndCrypto(
         cipher.init(Cipher.ENCRYPT_MODE, SecretKeySpec(sessionKey, "AES"), GCMParameterSpec(GCM_TAG_BITS, nonce))
         cipher.updateAAD(associatedData)
         return EncryptedPacket(nonce, cipher.doFinal(plaintext))
+    }
+
+    /**
+     * Creates a short authentication string for both users to compare out-of-band.
+     * The app must require an explicit match/confirmation before trusting the peer.
+     * A six-digit code is a human verification aid, not a standalone encryption key.
+     */
+    fun shortAuthenticationString(sessionKey: ByteArray, transcript: ByteArray): String {
+        validateKey(sessionKey)
+        require(transcript.isNotEmpty() && transcript.size <= MAX_CONTEXT_BYTES) {
+            "Invalid pairing transcript."
+        }
+        val mac = Mac.getInstance("HmacSHA256")
+        mac.init(SecretKeySpec(sessionKey, "HmacSHA256"))
+        val digest = mac.doFinal(transcript)
+        val value = (((digest[0].toLong() and 0xff) shl 24) or
+            ((digest[1].toLong() and 0xff) shl 16) or
+            ((digest[2].toLong() and 0xff) shl 8) or
+            (digest[3].toLong() and 0xff)) % 1_000_000L
+        digest.fill(0)
+        return value.toString().padStart(6, '0')
     }
 
     /** Fails closed if the nonce, tag, key, ciphertext, or AAD is invalid. */
