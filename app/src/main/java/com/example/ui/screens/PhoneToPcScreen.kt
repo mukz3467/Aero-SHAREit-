@@ -146,7 +146,7 @@ fun PhoneToPcScreen(
 
                 Spacer(modifier = Modifier.height(20.dp))
 
-                if (isBridgeActive) {
+                if (isBridgeActive && bridgeUrl.isNotBlank()) {
                     Text(
                         text = "Open this link in any browser on your PC:",
                         color = AeroTextSecondary,
@@ -182,7 +182,15 @@ fun PhoneToPcScreen(
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Icon(imageVector = Icons.Default.Computer, contentDescription = null, tint = AeroTextSecondary, modifier = Modifier.size(56.dp))
                             Spacer(modifier = Modifier.height(12.dp))
-                            Text("When enabled, upload files from your PC to the phone and download received files in a browser. The bridge uses unencrypted HTTP, so use a trusted local network.", color = AeroTextSecondary, fontSize = 13.sp)
+                            Text(
+                                if (isBridgeActive) {
+                                    "No Wi-Fi IPv4 address found. Connect to a Wi-Fi network and restart the bridge."
+                                } else {
+                                    "When enabled, upload files from your PC to the phone and download received files in a browser. The bridge uses unencrypted HTTP, so use a trusted local network."
+                                },
+                                color = AeroTextSecondary,
+                                fontSize = 13.sp
+                            )
                         }
                     }
                 }
