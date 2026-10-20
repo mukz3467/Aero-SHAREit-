@@ -201,6 +201,16 @@ class AeroTransferClient(
                         var fileOffset = resumeOffset
                         transferredSoFar += resumeOffset
                         staged.inputStream().buffered(transferChunkSize).use { fileInput ->
+                            var skipped = 0L
+                            while (skipped < resumeOffset) {
+                                val amount = fileInput.skip(resumeOffset - skipped)
+                                if (amount > 0L) {
+                                    skipped += amount
+                                } else {
+                                    if (fileInput.read() < 0) throw IOException("Cannot resume at requested position.")
+                                    skipped++
+                                }
+                            }
                             while (true) {
                                 while (isPaused && !isCancelled) {
                                     kotlinx.coroutines.delay(100)
