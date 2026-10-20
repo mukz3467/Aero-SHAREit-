@@ -1,6 +1,7 @@
 package com.example.engine
 
 import android.content.Context
+import android.os.StatFs
 import com.example.model.FileItem
 import com.example.model.FileReceiptItem
 import com.example.model.TransferRecord
@@ -57,6 +58,10 @@ class AeroTransferClient(
         localDeviceName: String,
         files: List<FileItem>
     ) {
+        if (files.isEmpty() || files.size > 1000) {
+            onError("Select between 1 and 1000 files for a transfer.")
+            return
+        }
         if (clientJob?.isActive == true) {
             onError("A transfer is already active. Finish or cancel it before starting another.")
             return
@@ -86,6 +91,8 @@ class AeroTransferClient(
                 var transferredSoFar = 0L
                 var startTime = System.currentTimeMillis()
                 val receiptItems = mutableListOf<FileReceiptItem>()
+                var stagedTotalBytes = 0L
+                var lastStorageCheckBytes = 0L
                 try {
                     // Stage selected content to disk first so metadata and byte counts match
                     // the actual content and large files are never loaded fully into RAM.
@@ -103,7 +110,22 @@ class AeroTransferClient(
                                         if (isCancelled) throw IOException("Transfer cancelled.")
                                         val count = inputStream.read(copyBuffer)
                                         if (count < 0) break
+                                        if (stagedTotalBytes > 100L * 1024 * 1024 * 1024 - count) {
+                                            throw IOException("Selected batch exceeds the 100 GiB transfer limit.")
+                                        }
+                                        if (stagedTotalBytes - lastStorageCheckBytes >= 8L * 1024 * 1024) {
+                                            val available = try {
+                                                StatFs(context.cacheDir.absolutePath).availableBytes
+                                            } catch (_: Exception) {
+                                                0L
+                                            }
+                                            if (available < 100L * 1024 * 1024) {
+                                                throw IOException("Not enough free storage to stage files safely.")
+                                            }
+                                            lastStorageCheckBytes = stagedTotalBytes
+                                        }
                                         out.write(copyBuffer, 0, count)
+                                        stagedTotalBytes += count
                                     }
                                 }
                             }
@@ -114,7 +136,7 @@ class AeroTransferClient(
                         }
                     }
 
-                    totalBytes = stagedFiles.sumOf { it.second.length() }
+                    totalBytes = stagedTotalBytes
                     output.writeInt(AeroTransferProtocol.MAGIC_HEADER)
                     output.writeUTF(localDeviceName)
                     output.writeInt(stagedFiles.size)
