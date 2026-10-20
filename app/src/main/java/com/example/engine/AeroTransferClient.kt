@@ -153,7 +153,7 @@ class AeroTransferClient(
 
                     transferredSoFar = 0L
                     startTime = System.currentTimeMillis()
-                    val buffer = ByteArray(AeroTransferProtocol.TURBO_CHUNK_SIZE)
+                    val buffer = ByteArray(transferChunkSize)
 
                     for ((f, staged) in stagedFiles) {
                         if (isCancelled) break
@@ -174,7 +174,7 @@ class AeroTransferClient(
                         output.flush()
 
                         var fileOffset = 0L
-                        staged.inputStream().buffered(AeroTransferProtocol.TURBO_CHUNK_SIZE).use { fileInput ->
+                        staged.inputStream().buffered(transferChunkSize).use { fileInput ->
                             while (true) {
                                 while (isPaused && !isCancelled) {
                                     kotlinx.coroutines.delay(100)
