@@ -5,6 +5,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.engine.AeroTransferClient
 import com.example.engine.AeroTransferServer
+import com.example.engine.AeroTransferProtocol
 import com.example.engine.CacheUsageReport
 import com.example.engine.FileIntegrityEngine
 import com.example.engine.FileManagerAndCleanerEngine
@@ -394,6 +395,7 @@ class TransferViewModel(application: Application) : AndroidViewModel(application
                     val succeeded = try {
                         completed.await()
                     } finally {
+                        groupClient.cancel()
                         synchronized(groupTransferClients) { groupTransferClients.remove(groupClient) }
                     }
                     if (!succeeded) break
