@@ -278,6 +278,10 @@ class TransferViewModel(application: Application) : AndroidViewModel(application
 
     fun startTransferToPeer(peer: NearbyDevice) {
         val selected = _uiState.value.availableFiles.filter { _uiState.value.selectedFiles.contains(it.id) }
+        if (selected.isEmpty()) {
+            _uiState.update { it.copy(storageCleanerMessage = "Select at least one file before connecting to a receiver.") }
+            return
+        }
         val totalBytes = selected.sumOf { it.sizeBytes }
 
         val record = TransferRecord(
@@ -342,9 +346,16 @@ class TransferViewModel(application: Application) : AndroidViewModel(application
 
     fun startGroupDrop() {
         val selected = _uiState.value.availableFiles.filter { _uiState.value.selectedFiles.contains(it.id) }
-        val files = if (selected.isNotEmpty()) selected else _uiState.value.availableFiles.take(1)
         val members = _uiState.value.groupSession.members
-        if (files.isEmpty() || members.isEmpty()) return
+        if (selected.isEmpty()) {
+            _uiState.update { it.copy(storageCleanerMessage = "Select at least one file before starting GroupDrop.") }
+            return
+        }
+        if (members.isEmpty()) {
+            _uiState.update { it.copy(storageCleanerMessage = "Discover and add at least one peer before starting GroupDrop.") }
+            return
+        }
+        val files = selected
 
         _uiState.update { state ->
             state.copy(groupSession = state.groupSession.copy(isGroupDropActive = true) )
