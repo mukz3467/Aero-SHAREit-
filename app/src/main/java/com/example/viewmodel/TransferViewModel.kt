@@ -51,7 +51,7 @@ enum class ActiveScreen {
 
 data class TransferUiState(
     val currentScreen: ActiveScreen = ActiveScreen.HOME,
-    val deviceName: String = "Pixel 8 Pro - Aero",
+    val deviceName: String = "Aero SHAREit Device",
     val availableFiles: List<FileItem> = emptyList(),
     val selectedFiles: Set<String> = emptySet(),
     val selectedCategory: FileCategory = FileCategory.PHOTOS,
