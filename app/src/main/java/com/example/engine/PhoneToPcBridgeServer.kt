@@ -45,7 +45,13 @@ class PhoneToPcBridgeServer(
                 isRunning = true
                 while (isActive && serverSocket?.isClosed == false) {
                     val client = serverSocket?.accept() ?: break
-                    scope.launch { handleClient(client) }
+                    scope.launch {
+                        try {
+                            handleClient(client)
+                        } catch (_: Exception) {
+                            try { client.close() } catch (_: Exception) {}
+                        }
+                    }
                 }
             } catch (_: Exception) {
                 // Server can be stopped while accept() is blocked.
