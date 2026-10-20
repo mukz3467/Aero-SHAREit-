@@ -25,7 +25,8 @@ class AeroTransferClient(
     private val context: Context,
     private val onProgressUpdate: (TransferRecord) -> Unit,
     private val onTransferFinished: (VerifiedReceipt) -> Unit,
-    private val onError: (String) -> Unit = {}
+    private val onError: (String) -> Unit = {},
+    private val liteModeProvider: () -> Boolean = { false }
 ) {
     private var clientJob: Job? = null
     private var socket: Socket? = null
@@ -70,6 +71,7 @@ class AeroTransferClient(
         isPaused = false
         transferGeneration += 1
         val generation = transferGeneration
+        val transferChunkSize = if (liteModeProvider()) LITE_CHUNK_SIZE else AeroTransferProtocol.TURBO_CHUNK_SIZE
 
         clientJob = scope.launch {
             var activeSocket: Socket? = null
@@ -252,5 +254,8 @@ class AeroTransferClient(
                 if (socket === activeSocket) socket = null
             }
         }
+    }
+    companion object {
+        private const val LITE_CHUNK_SIZE = 16 * 1024
     }
 }
