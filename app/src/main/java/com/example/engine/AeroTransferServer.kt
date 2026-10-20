@@ -66,7 +66,8 @@ class AeroTransferServer(
                     }
                 }
             } catch (ex: Exception) {
-                if (isRunning) onError("Server error: ${ex.message}")
+                // Report bind/start failures too; isRunning is still false if bind never succeeded.
+                if (isActive) onError("Server error: ${ex.message ?: "unable to start receiver"}")
             } finally {
                 isRunning = false
             }
