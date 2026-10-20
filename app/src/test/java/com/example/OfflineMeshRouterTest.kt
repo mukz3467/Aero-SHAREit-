@@ -81,6 +81,23 @@ class OfflineMeshRouterTest {
     }
 
     @Test
+    fun routeOutageDoesNotConsumeMessageDeduplicationSlot() {
+        val router = OfflineMeshRouter("B")
+        router.addDirectPeer("A", nowMillis = 1_000)
+        val packet = OfflineMeshRouter.RelayEnvelope(
+            "retry-message", "A", "C", 4, byteArrayOf(1, 2, 3)
+        )
+
+        assertNull(router.prepareRelay(packet, nowMillis = 1_100))
+        router.learnAdvertisement(
+            "A",
+            OfflineMeshRouter.Advertisement("C", 1),
+            nowMillis = 1_200
+        )
+        assertEquals(3, router.prepareRelay(packet, nowMillis = 1_300)?.hopLimit)
+    }
+
+    @Test
     fun relayStopsAtDestinationOrHopLimit() {
         val router = OfflineMeshRouter("B")
         router.addDirectPeer("A", nowMillis = 1_000)
