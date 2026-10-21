@@ -212,6 +212,34 @@ private fun SendDiscoveryView(
             Spacer(modifier = Modifier.height(8.dp))
         }
 
+        if (uiState.nearbyDevices.isEmpty()) {
+            item {
+                AeroCardBox(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 8.dp),
+                    backgroundColor = AeroCard,
+                    borderColor = AeroBorder,
+                    shape = RoundedCornerShape(16.dp)
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text(
+                            text = "Searching for devices…",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 14.sp,
+                            color = AeroTextPrimary
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = "Keep both phones on the same Wi-Fi network and open Receive on the other phone. Nearby Aero SHAREit devices appear here automatically.",
+                            fontSize = 12.sp,
+                            color = AeroTextSecondary
+                        )
+                    }
+                }
+            }
+        }
+
         items(uiState.nearbyDevices) { peer ->
             AeroCardBox(
                 modifier = Modifier
