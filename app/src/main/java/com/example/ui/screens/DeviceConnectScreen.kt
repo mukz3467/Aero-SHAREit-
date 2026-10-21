@@ -1,6 +1,25 @@
 package com.example.ui.screens
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import android.widget.ImageView
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.platform.LocalContext
+import androidx.core.content.ContextCompat
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import com.google.zxing.BarcodeFormat
+import com.google.zxing.MultiFormatWriter
+import com.google.zxing.EncodeHintType
+import com.journeyapps.barcodescanner.DecoratedBarcodeView
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -25,6 +44,8 @@ import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material.icons.filled.WifiTethering
 import androidx.compose.material3.Button
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -57,6 +78,8 @@ fun DeviceConnectScreen(
     uiState: TransferUiState,
     onBack: () -> Unit,
     onSelectPeer: (NearbyDevice) -> Unit,
+    onConnectWithPin: (String) -> Unit,
+    localPairingCode: String,
     modifier: Modifier = Modifier
 ) {
     BackHandler { onBack() }
@@ -103,12 +126,14 @@ fun DeviceConnectScreen(
 
             if (isReceiveMode) {
                 ReceiveBeaconView(
-                    deviceName = uiState.deviceName
+                    deviceName = uiState.deviceName,
+                    pairingCode = localPairingCode
                 )
             } else {
                 SendDiscoveryView(
                     uiState = uiState,
-                    onSelectPeer = onSelectPeer
+                    onSelectPeer = onSelectPeer,
+                    onConnectWithPin = onConnectWithPin
                 )
             }
         }
@@ -117,7 +142,8 @@ fun DeviceConnectScreen(
 
 @Composable
 private fun ReceiveBeaconView(
-    deviceName: String
+    deviceName: String,
+    pairingCode: String
 ) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -169,6 +195,24 @@ private fun ReceiveBeaconView(
                     Text(text = "Device: $deviceName", fontSize = 12.sp, color = AeroTextSecondary)
                     Text(text = "Network: Same local Wi-Fi • TCP port 8829", fontSize = 12.sp, color = AeroTextSecondary)
                     Text(text = "Safety: Incoming approval + SHA-256 file verification", fontSize = 12.sp, color = AeroSecondaryGreen, fontWeight = FontWeight.SemiBold)
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text(text = "Your 6-digit PIN", fontSize = 12.sp, color = AeroTextSecondary)
+                    Text(text = pairingCode.ifBlank { "Starting…" }, fontSize = 30.sp, fontWeight = FontWeight.ExtraBold, color = AeroEmerald)
+                    if (pairingCode.length == 6) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        AndroidView(
+                            modifier = Modifier.size(180.dp).align(Alignment.CenterHorizontally),
+                            factory = { context ->
+                                ImageView(context).apply {
+                                    scaleType = ImageView.ScaleType.FIT_CENTER
+                                    val matrix = MultiFormatWriter().encode("AEROSHARE:$pairingCode", BarcodeFormat.QR_CODE, 420, 420, mapOf(EncodeHintType.MARGIN to 1))
+                                    val bitmap = Bitmap.createBitmap(420, 420, Bitmap.Config.ARGB_8888)
+                                    for (x in 0 until 420) for (y in 0 until 420) bitmap.setPixel(x, y, if (matrix[x, y]) android.graphics.Color.BLACK else android.graphics.Color.WHITE)
+                                    setImageBitmap(bitmap)
+                                }
+                            }
+                        )
+                    }
                 }
             }
         }
@@ -179,8 +223,15 @@ private fun ReceiveBeaconView(
 @Composable
 private fun SendDiscoveryView(
     uiState: TransferUiState,
-    onSelectPeer: (NearbyDevice) -> Unit
+    onSelectPeer: (NearbyDevice) -> Unit,
+    onConnectWithPin: (String) -> Unit
 ) {
+    var pinInput by remember { mutableStateOf("") }
+    var scanning by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+    var hasCameraPermission by remember { mutableStateOf(ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) }
+    val cameraPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted -> hasCameraPermission = granted; if (granted) scanning = true }
+
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(horizontal = 20.dp, vertical = 10.dp)
@@ -199,6 +250,57 @@ private fun SendDiscoveryView(
                     tint = AeroEmerald,
                     modifier = Modifier.size(36.dp)
                 )
+            }
+        }
+
+        item {
+            AeroCardBox(
+                modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
+                backgroundColor = AeroCard,
+                borderColor = AeroBorder,
+                shape = RoundedCornerShape(16.dp)
+            ) {
+                Column(modifier = Modifier.fillMaxWidth().padding(14.dp)) {
+                    Text("Connect with PIN", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = AeroTextPrimary)
+                    Spacer(modifier = Modifier.height(6.dp))
+                    OutlinedTextField(
+                        value = pinInput,
+                        onValueChange = { pinInput = it.filter(Char::isDigit).take(6) },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("6-digit receiver PIN") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        singleLine = true
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                        Button(onClick = { onConnectWithPin(pinInput) }, enabled = pinInput.length == 6, modifier = Modifier.weight(1f)) { Text("Connect with PIN") }
+                        Button(onClick = {
+                            if (hasCameraPermission) scanning = true
+                            else cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+                        }, modifier = Modifier.weight(1f)) { Text("Scan QR") }
+                    }
+                    if (scanning && hasCameraPermission) {
+                        Spacer(modifier = Modifier.height(10.dp))
+                        AndroidView(
+                            modifier = Modifier.fillMaxWidth().height(280.dp),
+                            factory = { ctx ->
+                                DecoratedBarcodeView(ctx).apply {
+                                    decodeContinuous { result ->
+                                        val scannedCode = result.text.substringAfter("AEROSHARE:", result.text).filter(Char::isDigit)
+                                        if (scannedCode.length == 6) {
+                                            scanning = false
+                                            pause()
+                                            post { onConnectWithPin(scannedCode) }
+                                        }
+                                    }
+                                    resume()
+                                }
+                            },
+                            update = { it.resume() }
+                        )
+                        TextButton(onClick = { scanning = false }, modifier = Modifier.align(Alignment.End)) { Text("Close scanner") }
+                    }
+                }
             }
         }
 
