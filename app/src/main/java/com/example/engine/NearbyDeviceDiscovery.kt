@@ -85,8 +85,9 @@ class NearbyDeviceDiscovery(
                     try {
                         val packet = DatagramPacket(receiveBuffer, receiveBuffer.size)
                         udp.receive(packet)
+                        // Accept current five-field and older four-field packets for cross-version discovery.
                         val parts = String(packet.data, packet.offset, packet.length, Charsets.UTF_8).split('|', limit = 5)
-                        if (parts.size == 5 && parts[0] == MAGIC && parts[1] != instanceId) {
+                        if ((parts.size == 4 || parts.size == 5) && parts[0] == MAGIC && parts[1] != instanceId) {
                             val peerPort = parts[2].toIntOrNull()
                             val peerName = try {
                                 String(Base64.decode(parts[3], Base64.URL_SAFE or Base64.NO_WRAP), Charsets.UTF_8)
@@ -95,6 +96,9 @@ class NearbyDeviceDiscovery(
                             }
                             val ip = packet.address.hostAddress
                             if (peerPort != null && peerPort in 1..65535 && peerName.isNotBlank() && ip != null) {
+                                val peerPairingCode = parts.getOrNull(4)
+                                    ?.takeIf { it.matches(Regex("\\d{6}")) }
+                                    .orEmpty()
                                 peers[parts[1]] = NearbyDevice(
                                     id = parts[1],
                                     name = peerName.take(80),
@@ -103,7 +107,7 @@ class NearbyDeviceDiscovery(
                                     is5Ghz = false,
                                     signalStrength = 0,
                                     deviceModel = "Aero SHAREit peer",
-                                    pairingCode = parts[4].takeIf { it.matches(Regex("\\d{6}")) } ?: ""
+                                    pairingCode = peerPairingCode
                                 ) to System.currentTimeMillis()
                             }
                         }
