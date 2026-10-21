@@ -52,6 +52,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -228,6 +229,7 @@ private fun SendDiscoveryView(
 ) {
     var pinInput by remember { mutableStateOf("") }
     var scanning by remember { mutableStateOf(false) }
+    val scannerView = remember { mutableStateOf<DecoratedBarcodeView?>(null) }
     val context = LocalContext.current
     var hasCameraPermission by remember { mutableStateOf(ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) }
     val cameraPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted -> hasCameraPermission = granted; if (granted) scanning = true }
@@ -289,6 +291,7 @@ private fun SendDiscoveryView(
                             modifier = Modifier.fillMaxWidth().height(280.dp),
                             factory = { ctx ->
                                 DecoratedBarcodeView(ctx).apply {
+                                    scannerView.value = this
                                     decodeContinuous { result ->
                                         val scannedCode = result.text.substringAfter("AEROSHARE:", result.text).filter(Char::isDigit)
                                         if (scannedCode.length == 6) {
@@ -302,7 +305,10 @@ private fun SendDiscoveryView(
                             },
                             update = { it.resume() }
                         )
-                        TextButton(onClick = { scanning = false }, modifier = Modifier.align(Alignment.End)) { Text("Close scanner") }
+                        DisposableEffect(scanning) {
+                            onDispose { scannerView.value?.pause() }
+                        }
+                        TextButton(onClick = { scanning = false; scannerView.value?.pause() }, modifier = Modifier.align(Alignment.End)) { Text("Close scanner") }
                     }
                 }
             }
