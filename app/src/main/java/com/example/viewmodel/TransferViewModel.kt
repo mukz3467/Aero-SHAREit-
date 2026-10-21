@@ -32,6 +32,9 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.io.File
+import java.net.Inet4Address
+import java.net.NetworkInterface
+import java.util.Collections
 import java.util.UUID
 
 enum class ActiveScreen {
@@ -396,14 +399,26 @@ class TransferViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    @Suppress("DEPRECATION")
+    /**
+     * Finds an active private IPv4 address, including phone-hotspot interfaces.
+     * This lets the PC bridge work on a direct local hotspot without internet or a router.
+     */
     private fun findLocalIpv4Address(): String? {
-        val wifiManager = getApplication<Application>().applicationContext
-            .getSystemService(android.content.Context.WIFI_SERVICE) as? android.net.wifi.WifiManager
-            ?: return null
-        val ip = wifiManager.connectionInfo.ipAddress
-        if (ip == 0) return null
-        return "${ip and 0xff}.${(ip shr 8) and 0xff}.${(ip shr 16) and 0xff}.${(ip shr 24) and 0xff}"
+        return try {
+            val interfaces = Collections.list(NetworkInterface.getNetworkInterfaces())
+                .filter { network -> network.isUp && !network.isLoopback }
+            val addresses = interfaces.flatMap { network ->
+                Collections.list(network.inetAddresses)
+                    .filterIsInstance<Inet4Address>()
+                    .filter { address -> !address.isLoopbackAddress && address.isSiteLocalAddress }
+                    .map { address -> network.name.lowercase() to address.hostAddress }
+            }
+            addresses.firstOrNull { (name, _) ->
+                name.contains("wlan") || name.contains("ap") || name.contains("wifi") || name.contains("swlan")
+            }?.second ?: addresses.firstOrNull()?.second
+        } catch (_: Exception) {
+            null
+        }
     }
 
     fun startGroupDrop() {
