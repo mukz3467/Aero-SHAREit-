@@ -65,7 +65,6 @@ data class TransferUiState(
     val isEncryptionEnabled: Boolean = false,
     val autoDisconnect: Boolean = true,
     val isLiteMode: Boolean = false,
-    val isPinRequired: Boolean = false,
     val isSafeDropEnabled: Boolean = true,
     val isBridgeServerActive: Boolean = false,
     val bridgeAuthToken: String = UUID.randomUUID().toString().replace("-", ""),
@@ -733,10 +732,6 @@ class TransferViewModel(application: Application) : AndroidViewModel(application
 
     fun toggleLiteMode(enabled: Boolean) {
         _uiState.update { it.copy(isLiteMode = enabled) }
-    }
-
-    fun togglePinRequired(enabled: Boolean) {
-        _uiState.update { it.copy(isPinRequired = enabled) }
     }
 
     override fun onCleared() {
