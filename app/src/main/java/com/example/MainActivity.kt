@@ -107,8 +107,7 @@ private fun AeroAppContent(
             isReceiveMode = true,
             uiState = state,
             onBack = { viewModel.navigateTo(ActiveScreen.HOME) },
-            onSelectPeer = viewModel::startTransferToPeer,
-            onSimulateReceive = {}
+            onSelectPeer = viewModel::startTransferToPeer
         )
 
         ActiveScreen.ACTIVE_TRANSFER -> TransferProgressScreen(
