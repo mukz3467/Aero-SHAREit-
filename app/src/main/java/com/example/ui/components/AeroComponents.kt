@@ -40,6 +40,9 @@ import com.example.ui.theme.AeroEmeraldSubtle
 import com.example.ui.theme.AeroSecondaryGreen
 import com.example.ui.theme.AeroTextPrimary
 import com.example.ui.theme.AeroTextSecondary
+import com.google.zxing.BarcodeFormat
+import com.google.zxing.EncodeHintType
+import com.google.zxing.qrcode.QRCodeWriter
 
 @Composable
 fun AeroCardBox(
@@ -104,8 +107,22 @@ fun RadarPulseEffect(
 @Composable
 fun StylizedQrMatrix(
     modifier: Modifier = Modifier,
-    ipText: String = "192.168.49.1:8829"
+    ipText: String = "http://192.168.49.1:8844"
 ) {
+    // Generate a standards-compliant QR from the exact URL shown to the user.
+    // The previous decorative matrix looked like a QR but could not be scanned.
+    val matrix = androidx.compose.runtime.remember(ipText) {
+        runCatching {
+            QRCodeWriter().encode(
+                ipText,
+                BarcodeFormat.QR_CODE,
+                256,
+                256,
+                mapOf(EncodeHintType.MARGIN to 1)
+            )
+        }.getOrNull()
+    }
+
     AeroCardBox(
         modifier = modifier.padding(16.dp),
         backgroundColor = AeroCard,
@@ -116,22 +133,29 @@ fun StylizedQrMatrix(
             modifier = Modifier.padding(20.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Canvas(modifier = Modifier.size(200.dp)) {
-                val step = size.width / 15
-                for (r in 0 until 15) {
-                    for (c in 0 until 15) {
-                        val isCorner = (r < 4 && c < 4) || (r < 4 && c > 10) || (r > 10 && c < 4)
-                        val isPattern = isCorner || ((r * 7 + c * 13) % 3 == 0)
-                        if (isPattern) {
-                            val color = if (isCorner) AeroEmerald else AeroSecondaryGreen.copy(alpha = 0.85f)
-                            drawRect(
-                                color = color,
-                                topLeft = Offset(c * step, r * step),
-                                size = Size(step * 0.85f, step * 0.85f)
-                            )
+            if (matrix != null) {
+                Canvas(modifier = Modifier.size(200.dp)) {
+                    drawRect(color = Color.White)
+                    val cellWidth = size.width / matrix.width
+                    val cellHeight = size.height / matrix.height
+                    for (y in 0 until matrix.height) {
+                        for (x in 0 until matrix.width) {
+                            if (matrix.get(x, y)) {
+                                drawRect(
+                                    color = Color.Black,
+                                    topLeft = Offset(x * cellWidth, y * cellHeight),
+                                    size = Size(cellWidth + 0.25f, cellHeight + 0.25f)
+                                )
+                            }
                         }
                     }
                 }
+            } else {
+                Text(
+                    text = "QR unavailable — enter the address shown above manually.",
+                    color = AeroTextSecondary,
+                    fontSize = 12.sp
+                )
             }
             Spacer(modifier = Modifier.height(14.dp))
             Text(
@@ -141,7 +165,7 @@ fun StylizedQrMatrix(
                 fontSize = 13.sp
             )
             Text(
-                text = "Wi-Fi Direct SAS Code: 8829",
+                text = "Scan to open the local PC bridge",
                 color = AeroSecondaryGreen,
                 fontSize = 11.sp
             )
