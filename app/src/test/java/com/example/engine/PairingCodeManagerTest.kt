@@ -10,7 +10,7 @@ import org.junit.Test
 class PairingCodeManagerTest {
     @Test
     fun pinIsSingleUseAndExpires() {
-        val manager = PairingCodeManager(SecureRandom(), lifetimeMillis = 2_000)
+        val manager = PairingCodeManager(SecureRandom(), lifetimeMillis = 2_000L)
         val invite = manager.createPin(nowMillis = 10_000)
         assertEquals(6, invite.code.length)
         assertTrue(manager.consume(invite.code, nowMillis = 10_100))
