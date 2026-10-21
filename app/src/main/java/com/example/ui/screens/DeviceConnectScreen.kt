@@ -21,10 +21,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.PhoneAndroid
-import androidx.compose.material.icons.filled.QrCodeScanner
-import androidx.compose.material.icons.filled.SignalCellularAlt
 import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material.icons.filled.WifiTethering
 import androidx.compose.material3.Button
@@ -44,11 +41,9 @@ import androidx.compose.ui.unit.sp
 import com.example.model.NearbyDevice
 import com.example.ui.components.AeroCardBox
 import com.example.ui.components.RadarPulseEffect
-import com.example.ui.components.StylizedQrMatrix
 import com.example.ui.theme.AeroBackground
 import com.example.ui.theme.AeroBorder
 import com.example.ui.theme.AeroCard
-import com.example.ui.theme.AeroCardElevated
 import com.example.ui.theme.AeroEmerald
 import com.example.ui.theme.AeroEmeraldSubtle
 import com.example.ui.theme.AeroSecondaryGreen
@@ -62,7 +57,6 @@ fun DeviceConnectScreen(
     uiState: TransferUiState,
     onBack: () -> Unit,
     onSelectPeer: (NearbyDevice) -> Unit,
-    onSimulateReceive: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     BackHandler { onBack() }
