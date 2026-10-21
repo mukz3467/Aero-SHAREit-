@@ -148,7 +148,7 @@ fun PhoneToPcScreen(
 
                 if (isBridgeActive && bridgeUrl.isNotBlank()) {
                     Text(
-                        text = "Open this link in any browser on your PC:",
+                        text = "Connect your PC to this phone’s hotspot OR put both devices on the same local Wi-Fi. Internet is not required. Then open this link in your PC browser:",
                         color = AeroTextSecondary,
                         fontSize = 13.sp
                     )
@@ -184,9 +184,9 @@ fun PhoneToPcScreen(
                             Spacer(modifier = Modifier.height(12.dp))
                             Text(
                                 if (isBridgeActive) {
-                                    "No Wi-Fi IPv4 address found. Connect to a Wi-Fi network and restart the bridge."
+                                    "No local IPv4 address found. Turn on your phone hotspot, connect the PC to it, then turn this bridge off and on again. Internet is not required."
                                 } else {
-                                    "When enabled, upload files from your PC to the phone and download received files in a browser. The bridge uses unencrypted HTTP, so use a trusted local network."
+                                    "Offline transfer: turn on your phone hotspot and connect the PC to it, or use an existing local Wi-Fi network. No internet or router is required. Open the shown link in the PC browser. The current browser bridge uses HTTP, so only use it on a trusted local connection."
                                 },
                                 color = AeroTextSecondary,
                                 fontSize = 13.sp
