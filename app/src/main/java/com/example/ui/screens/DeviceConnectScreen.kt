@@ -279,6 +279,10 @@ private fun SendDiscoveryView(
                             else cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
                         }, modifier = Modifier.weight(1f)) { Text("Scan QR") }
                     }
+                    uiState.storageCleanerMessage?.let { message ->
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(message, fontSize = 12.sp, color = AeroSecondaryGreen)
+                    }
                     if (scanning && hasCameraPermission) {
                         Spacer(modifier = Modifier.height(10.dp))
                         AndroidView(
