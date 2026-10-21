@@ -138,7 +138,7 @@ fun HomeScreen(
             // Quick Tools Section
             item {
                 QuickToolsSection(
-                    onPinCodeClick = { onNavigate(ActiveScreen.RECEIVING_BEACON) },
+                    onPinCodeClick = { onNavigate(ActiveScreen.DISCOVERING_PEERS) },
                     onQrScannerClick = { onNavigate(ActiveScreen.DISCOVERING_PEERS) },
                     onWebShareClick = { onNavigate(ActiveScreen.PHONE_TO_PC) },
                     onGroupRoomClick = { onNavigate(ActiveScreen.GROUP_ROOM) },
