@@ -172,7 +172,6 @@ private fun AeroAppContent(
             onToggleEncryption = viewModel::toggleEncryption,
             onToggleAutoDisconnect = viewModel::toggleAutoDisconnect,
             onToggleLiteMode = viewModel::toggleLiteMode,
-            onTogglePinRequired = viewModel::togglePinRequired,
             onCleanCache = { viewModel.cleanAppTemporaryCache() }
         )
     }
