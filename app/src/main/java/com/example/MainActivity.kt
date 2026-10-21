@@ -92,7 +92,7 @@ private fun AeroAppContent(
             onToggleSelectFile = viewModel::toggleFileSelection,
             onSelectAllCategory = viewModel::selectAllFilesInCategory,
             onClearSelection = viewModel::clearSelectedFiles,
-            onSendSelected = { viewModel.navigateTo(ActiveScreen.DISCOVERING_PEERS) },
+            onSendSelected = { state.selectedPeer?.let(viewModel::startTransferToPeer) ?: viewModel.navigateTo(ActiveScreen.DISCOVERING_PEERS) },
             onRefreshScan = onRequestStoragePermissions
         )
 
@@ -100,14 +100,18 @@ private fun AeroAppContent(
             isReceiveMode = false,
             uiState = state,
             onBack = { viewModel.navigateTo(ActiveScreen.FILE_BROWSER) },
-            onSelectPeer = viewModel::startTransferToPeer
+            onSelectPeer = viewModel::startTransferToPeer,
+            onConnectWithPin = viewModel::connectUsingPairingCode,
+            localPairingCode = state.localPairingCode
         )
 
         ActiveScreen.RECEIVING_BEACON -> DeviceConnectScreen(
             isReceiveMode = true,
             uiState = state,
             onBack = { viewModel.navigateTo(ActiveScreen.HOME) },
-            onSelectPeer = viewModel::startTransferToPeer
+            onSelectPeer = viewModel::startTransferToPeer,
+            onConnectWithPin = viewModel::connectUsingPairingCode,
+            localPairingCode = state.localPairingCode
         )
 
         ActiveScreen.ACTIVE_TRANSFER -> TransferProgressScreen(
