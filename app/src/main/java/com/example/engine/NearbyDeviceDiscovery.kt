@@ -24,6 +24,7 @@ import java.util.UUID
 class NearbyDeviceDiscovery(
     private val deviceNameProvider: () -> String,
     private val onDevicesChanged: (List<NearbyDevice>) -> Unit,
+    private val onLocalPairingCode: (String) -> Unit = {},
     private val tcpPort: Int = AeroTransferProtocol.DEFAULT_PORT
 ) {
     companion object {
@@ -33,6 +34,7 @@ class NearbyDeviceDiscovery(
     }
 
     private val instanceId = UUID.randomUUID().toString()
+    private val pairingCode = (100000 + (instanceId.hashCode().toLong().and(0x7fffffff) % 900000)).toString()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var job: Job? = null
     @Volatile private var stopped = false
@@ -40,6 +42,7 @@ class NearbyDeviceDiscovery(
     fun start() {
         if (job?.isActive == true) return
         stopped = false
+        onLocalPairingCode(pairingCode)
         job = scope.launch {
             val peers = linkedMapOf<String, Pair<NearbyDevice, Long>>()
             val socket = try {
@@ -65,7 +68,7 @@ class NearbyDeviceDiscovery(
                             deviceNameProvider().take(80).toByteArray(Charsets.UTF_8),
                             Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING
                         )
-                        val message = "$MAGIC|$instanceId|$tcpPort|$safeName".toByteArray(Charsets.UTF_8)
+                        val message = "$MAGIC|$instanceId|$tcpPort|$safeName|$pairingCode".toByteArray(Charsets.UTF_8)
                         val packet = DatagramPacket(message, message.size)
                         try {
                             for (address in broadcastAddresses()) {
@@ -82,8 +85,8 @@ class NearbyDeviceDiscovery(
                     try {
                         val packet = DatagramPacket(receiveBuffer, receiveBuffer.size)
                         udp.receive(packet)
-                        val parts = String(packet.data, packet.offset, packet.length, Charsets.UTF_8).split('|', limit = 4)
-                        if (parts.size == 4 && parts[0] == MAGIC && parts[1] != instanceId) {
+                        val parts = String(packet.data, packet.offset, packet.length, Charsets.UTF_8).split('|', limit = 5)
+                        if (parts.size == 5 && parts[0] == MAGIC && parts[1] != instanceId) {
                             val peerPort = parts[2].toIntOrNull()
                             val peerName = try {
                                 String(Base64.decode(parts[3], Base64.URL_SAFE or Base64.NO_WRAP), Charsets.UTF_8)
@@ -99,7 +102,8 @@ class NearbyDeviceDiscovery(
                                     port = peerPort,
                                     is5Ghz = false,
                                     signalStrength = 0,
-                                    deviceModel = "Aero SHAREit peer"
+                                    deviceModel = "Aero SHAREit peer",
+                                    pairingCode = parts[4].takeIf { it.matches(Regex("\\d{6}")) } ?: ""
                                 ) to System.currentTimeMillis()
                             }
                         }
