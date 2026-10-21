@@ -181,12 +181,10 @@ fun SettingsScreen(
         }
 
         item {
-            SettingsToggleCard(
+            SettingsInfoCard(
                 icon = Icons.Default.Wifi,
                 title = "Nearby Wi-Fi Discovery",
-                subtitle = "Automatically finds Aero SHAREit devices on the same local Wi-Fi network",
-                isChecked = true,
-                onCheckedChange = { }
+                value = "Automatic discovery on the same local Wi-Fi network"
             )
         }
 
