@@ -100,8 +100,7 @@ private fun AeroAppContent(
             isReceiveMode = false,
             uiState = state,
             onBack = { viewModel.navigateTo(ActiveScreen.FILE_BROWSER) },
-            onSelectPeer = viewModel::startTransferToPeer,
-            onSimulateReceive = {}
+            onSelectPeer = viewModel::startTransferToPeer
         )
 
         ActiveScreen.RECEIVING_BEACON -> DeviceConnectScreen(
