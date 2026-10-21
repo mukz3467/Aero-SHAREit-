@@ -55,6 +55,7 @@ data class TransferUiState(
     val selectedFiles: Set<String> = emptySet(),
     val selectedCategory: FileCategory = FileCategory.PHOTOS,
     val nearbyDevices: List<NearbyDevice> = emptyList(),
+    val localPairingCode: String = "",
     val selectedPeer: NearbyDevice? = null,
     val activeTransferRecord: TransferRecord? = null,
     val historyRecords: List<TransferRecord> = emptyList(),
@@ -223,8 +224,27 @@ class TransferViewModel(application: Application) : AndroidViewModel(application
                         devices.firstOrNull { it.id == selected.id }
                     })
                 }
-            }
+            },
+            onLocalPairingCode = { code -> _uiState.update { it.copy(localPairingCode = code) } }
         ).also { it.start() }
+    }
+
+    fun connectUsingPairingCode(code: String) {
+        val normalized = code.filter(Char::isDigit)
+        if (normalized.length != 6) {
+            _uiState.update { it.copy(storageCleanerMessage = "Enter the 6-digit PIN shown on the receiving phone.") }
+            return
+        }
+        val peer = _uiState.value.nearbyDevices.firstOrNull { it.pairingCode == normalized }
+        if (peer == null) {
+            _uiState.update { it.copy(storageCleanerMessage = "No nearby AeroShare device has that PIN. Keep both phones on the same Wi-Fi and try again.") }
+            return
+        }
+        if (_uiState.value.selectedFiles.isNotEmpty()) {
+            startTransferToPeer(peer)
+        } else {
+            _uiState.update { it.copy(selectedPeer = peer, currentScreen = ActiveScreen.FILE_BROWSER, storageCleanerMessage = "PIN matched ${peer.name}. Select files, then tap Send to connect.") }
+        }
     }
 
     private fun updateAutopilot() {
