@@ -31,6 +31,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 import java.io.File
 import java.net.Inet4Address
 import java.net.NetworkInterface
@@ -383,15 +384,37 @@ class TransferViewModel(application: Application) : AndroidViewModel(application
     fun togglePcBridge(active: Boolean) {
         if (active) {
             pcBridgeServer?.start()
-            val address = findLocalIpv4Address()
-            _uiState.update { state ->
-                state.copy(
+            _uiState.update {
+                it.copy(
                     isBridgeServerActive = true,
-                    bridgeUrl = address?.let { "http://$it:${AeroTransferProtocol.PC_BRIDGE_PORT}?token=${state.bridgeAuthToken}" }.orEmpty(),
-                    storageCleanerMessage = if (address == null) {
-                        "Connect this phone and your PC to the same Wi-Fi network, then try the bridge again."
-                    } else state.storageCleanerMessage
+                    bridgeUrl = "",
+                    storageCleanerMessage = "Starting local PC bridge…"
                 )
+            }
+            // Hotspot/Wi-Fi interfaces may appear a moment after the user enables them.
+            // Retry address discovery so users don't need to toggle the bridge off and on.
+            viewModelScope.launch {
+                repeat(20) {
+                    if (!_uiState.value.isBridgeServerActive) return@launch
+                    val address = findLocalIpv4Address()
+                    if (address != null) {
+                        _uiState.update { state ->
+                            if (!state.isBridgeServerActive) state
+                            else state.copy(
+                                bridgeUrl = "http://" + address + ":" + AeroTransferProtocol.PC_BRIDGE_PORT + "/?token=" + state.bridgeAuthToken
+                            )
+                        }
+                        return@launch
+                    }
+                    delay(500)
+                }
+                if (_uiState.value.isBridgeServerActive && _uiState.value.bridgeUrl.isBlank()) {
+                    _uiState.update {
+                        it.copy(
+                            storageCleanerMessage = "No local address found yet. Turn on the phone hotspot, connect the PC, then wait a few seconds. Internet is not required."
+                        )
+                    }
+                }
             }
         } else {
             pcBridgeServer?.stop()
