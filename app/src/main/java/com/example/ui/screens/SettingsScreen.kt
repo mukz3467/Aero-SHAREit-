@@ -20,7 +20,6 @@ import androidx.compose.material.icons.filled.CleaningServices
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.PhoneAndroid
-import androidx.compose.material.icons.filled.Pin
 import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material.icons.filled.WifiTethering
 import androidx.compose.material3.AlertDialog
@@ -67,7 +66,6 @@ fun SettingsScreen(
     onToggleEncryption: (Boolean) -> Unit,
     onToggleAutoDisconnect: (Boolean) -> Unit,
     onToggleLiteMode: (Boolean) -> Unit,
-    onTogglePinRequired: (Boolean) -> Unit,
     onCleanCache: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -184,11 +182,11 @@ fun SettingsScreen(
 
         item {
             SettingsToggleCard(
-                icon = Icons.Default.Pin,
-                title = "Require 4-Digit Session PIN",
-                subtitle = "Sender must input a one-time PIN before opening a direct file socket",
-                isChecked = uiState.isPinRequired,
-                onCheckedChange = onTogglePinRequired
+                icon = Icons.Default.Wifi,
+                title = "Nearby Wi-Fi Discovery",
+                subtitle = "Automatically finds Aero SHAREit devices on the same local Wi-Fi network",
+                isChecked = true,
+                onCheckedChange = { }
             )
         }
 
