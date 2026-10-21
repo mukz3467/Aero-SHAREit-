@@ -33,7 +33,6 @@ import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Laptop
 import androidx.compose.material.icons.filled.PhoneAndroid
-import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Sync
@@ -137,7 +136,7 @@ fun HomeScreen(
             // Quick Tools Section
             item {
                 QuickToolsSection(
-                    onQrClick = { onNavigate(ActiveScreen.DISCOVERING_PEERS) },
+                    onFindDevicesClick = { onNavigate(ActiveScreen.DISCOVERING_PEERS) },
                     onWebShareClick = { onNavigate(ActiveScreen.PHONE_TO_PC) },
                     onGroupRoomClick = { onNavigate(ActiveScreen.GROUP_ROOM) },
                     onClonePhoneClick = { onNavigate(ActiveScreen.PHONE_MIGRATION) }
@@ -493,7 +492,7 @@ private fun CategoryTile(
 
 @Composable
 private fun QuickToolsSection(
-    onQrClick: () -> Unit,
+    onFindDevicesClick: () -> Unit,
     onWebShareClick: () -> Unit,
     onGroupRoomClick: () -> Unit,
     onClonePhoneClick: () -> Unit
@@ -517,10 +516,10 @@ private fun QuickToolsSection(
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             ToolCard(
-                icon = Icons.Default.QrCodeScanner,
+                icon = Icons.Default.Wifi,
                 title = "Find Devices",
-                subtitle = "Local Wi-Fi",
-                onClick = onQrClick,
+                subtitle = "Discover on Wi-Fi",
+                onClick = onFindDevicesClick,
                 modifier = Modifier.weight(1f)
             )
             ToolCard(
