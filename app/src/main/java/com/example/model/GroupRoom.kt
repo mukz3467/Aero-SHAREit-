@@ -13,9 +13,9 @@ data class GroupPeer(
 )
 
 data class GroupRoomSession(
-    val roomCode: String = "8829",
-    val hostDeviceName: String = "Host Device",
-    val hostIp: String = "192.168.49.1",
+    val roomCode: String = "LOCAL",
+    val hostDeviceName: String = "Aero SHAREit",
+    val hostIp: String = "",
     val members: List<GroupPeer> = emptyList(),
     val isGroupDropActive: Boolean = false,
     val activeBatchTitle: String = "",

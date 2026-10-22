@@ -1,9 +1,12 @@
 package com.example.engine
 
+import android.Manifest
 import android.content.ContentUris
+import android.content.pm.PackageManager
 import android.content.Context
 import android.os.Build
 import android.provider.MediaStore
+import androidx.core.content.ContextCompat
 import com.example.model.FileCategory
 import com.example.model.FileItem
 
@@ -42,8 +45,23 @@ object LocalMediaStoreExplorer {
             allFiles = files,
             categoryCounts = counts,
             categorySizes = sizes,
-            hasPermission = true
+            hasPermission = hasRequiredMediaPermissions(context)
         )
+    }
+
+    private fun hasRequiredMediaPermissions(context: Context): Boolean {
+        val required = if (Build.VERSION.SDK_INT >= 33) {
+            listOf(
+                Manifest.permission.READ_MEDIA_IMAGES,
+                Manifest.permission.READ_MEDIA_VIDEO,
+                Manifest.permission.READ_MEDIA_AUDIO
+            )
+        } else {
+            listOf(Manifest.permission.READ_EXTERNAL_STORAGE)
+        }
+        return required.all {
+            ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED
+        }
     }
 
     private fun queryCategory(

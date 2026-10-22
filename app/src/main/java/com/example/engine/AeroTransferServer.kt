@@ -1,6 +1,8 @@
 package com.example.engine
 
 import android.content.Context
+import android.os.Environment
+import android.os.StatFs
 import com.example.model.FileReceiptItem
 import com.example.model.TransferRecord
 import com.example.model.TransferStatus
@@ -8,6 +10,8 @@ import com.example.model.VerifiedReceipt
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
@@ -16,8 +20,11 @@ import java.io.BufferedOutputStream
 import java.io.DataInputStream
 import java.io.DataOutputStream
 import java.io.File
+import java.io.IOException
 import java.net.ServerSocket
 import java.net.Socket
+import java.security.KeyFactory
+import java.security.spec.X509EncodedKeySpec
 import java.util.UUID
 
 class AeroTransferServer(
@@ -53,20 +60,23 @@ class AeroTransferServer(
                         connectionSemaphore.acquire()
                         try {
                             handleClient(socket)
+                        } catch (ex: Exception) {
+                            onError("Incoming transfer failed: ${ex.message ?: "connection closed"}")
                         } finally {
                             connectionSemaphore.release()
                         }
                     }
                 }
             } catch (ex: Exception) {
-                if (isRunning) onError("Server error: ${ex.message}")
+                // Report bind/start failures too; isRunning is still false if bind never succeeded.
+                if (isActive) onError("Server error: ${ex.message ?: "unable to start receiver"}")
             } finally {
                 isRunning = false
             }
         }
     }
 
-    private fun handleClient(socket: Socket) {
+    private suspend fun handleClient(socket: Socket) {
         socket.use { s ->
             s.tcpNoDelay = true
             s.soTimeout = AeroTransferProtocol.SOCKET_TIMEOUT_MS
@@ -77,10 +87,25 @@ class AeroTransferServer(
             val magic = input.readInt()
             if (magic != AeroTransferProtocol.MAGIC_HEADER) return
 
+            val protocolVersion = input.readInt()
+            if (protocolVersion != AeroTransferProtocol.PROTOCOL_VERSION) return
             val clientDeviceName = input.readUTF()
             val filesCount = input.readInt()
             val totalBytes = input.readLong()
-            val clientIp = s.inetAddress.hostAddress ?: "192.168.49.2"
+            val clientKeyLength = input.readInt()
+            if (clientKeyLength !in 1..4096) return
+            val clientPublicKeyBytes = ByteArray(clientKeyLength)
+            input.readFully(clientPublicKeyBytes)
+            val saltLength = input.readInt()
+            if (saltLength != 32) return
+            val sessionSalt = ByteArray(saltLength)
+            input.readFully(sessionSalt)
+            if (filesCount !in 1..1000 || totalBytes < 0L || totalBytes > 100L * 1024 * 1024 * 1024) {
+                output.writeBoolean(false)
+                output.flush()
+                return
+            }
+            val clientIp = s.inetAddress.hostAddress ?: "unknown"
 
             val req = SafeDropRequest(
                 peerName = clientDeviceName,
@@ -91,71 +116,167 @@ class AeroTransferServer(
                 totalSizeFormatted = StorageSmartManager.formatBytes(totalBytes)
             )
 
-            var isAccepted = true
-            onIncomingRequest(req) { accepted -> isAccepted = accepted }
+            val approval = CompletableDeferred<Boolean>()
+            val respondToApproval: (Boolean) -> Unit = { accepted -> approval.complete(accepted) }
+            onIncomingRequest(req, respondToApproval)
+            val timedResult = withTimeoutOrNull(30_000L) { approval.await() }
+            val isAccepted = timedResult ?: run {
+                // Notify the UI callback too, so an expired request cannot leave a stale dialog.
+                respondToApproval(false)
+                false
+            }
 
-            output.writeBoolean(isAccepted)
+            if (!isAccepted) {
+                output.writeBoolean(false)
+                output.flush()
+                return
+            }
+
+            val receivedDir = (context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
+                ?: File(context.filesDir, "received")).apply {
+                if (!exists() && !mkdirs()) throw IOException("Cannot create received-files folder.")
+            }
+            if (!receivedDir.isDirectory || !receivedDir.canWrite()) {
+                output.writeBoolean(false)
+                output.flush()
+                onError("Received-files folder is not writable.")
+                return
+            }
+            val freeBytes = try {
+                StatFs(receivedDir.absolutePath).availableBytes
+            } catch (_: Exception) {
+                0L
+            }
+            val safetyMargin = 100L * 1024 * 1024
+            if (totalBytes > Long.MAX_VALUE - safetyMargin || freeBytes < totalBytes + safetyMargin) {
+                output.writeBoolean(false)
+                output.flush()
+                onError("Not enough free storage to safely receive this batch.")
+                return
+            }
+
+            val serverKeyPair = AeroCryptoEngine.generateEcdhKeyPair()
+            val serverPublicKey = serverKeyPair.public.encoded
+            output.writeBoolean(true)
+            output.writeInt(serverPublicKey.size)
+            output.write(serverPublicKey)
             output.flush()
-            if (!isAccepted) return
+            val clientPublicKey = KeyFactory.getInstance("EC")
+                .generatePublic(X509EncodedKeySpec(clientPublicKeyBytes))
+            val sharedSecret = AeroCryptoEngine.computeSharedSecret(serverKeyPair.private, clientPublicKey)
+            val sessionKey = AeroCryptoEngine.deriveAesKey(sharedSecret, sessionSalt, "AeroDataTransfer-v2")
+            sharedSecret.fill(0)
 
             val receiptItems = mutableListOf<FileReceiptItem>()
             var transferredSoFar = 0L
             val startTime = System.currentTimeMillis()
 
-            val tempDir = File(context.cacheDir, "transfers").apply { mkdirs() }
-
+            var declaredBytes = 0L
             for (i in 0 until filesCount) {
-                val fileName = input.readUTF()
+                val fileName = AeroSecuritySanitizer.sanitizeFilename(input.readUTF())
                 val fileSize = input.readLong()
                 val expectedSha = input.readUTF()
-
-                val tempFile = File(tempDir, "${fileName}.part")
-                tempFile.parentFile?.mkdirs()
-
-                var fileTransferred = 0L
-                tempFile.outputStream().use { fos ->
-                    val buffer = ByteArray(AeroTransferProtocol.TURBO_CHUNK_SIZE)
-                    while (fileTransferred < fileSize) {
-                        val toRead = Math.min(buffer.size.toLong(), fileSize - fileTransferred).toInt()
-                        val bytesRead = input.read(buffer, 0, toRead)
-                        if (bytesRead == -1) break
-                        fos.write(buffer, 0, bytesRead)
-                        fileTransferred += bytesRead
-                        transferredSoFar += bytesRead
-
-                        val elapsedSec = Math.max(0.1, (System.currentTimeMillis() - startTime) / 1000.0)
-                        val speed = ((transferredSoFar * 8f) / (elapsedSec * 1024 * 1024)).toFloat()
-
-                        val record = TransferRecord(
-                            id = req.requestId,
-                            fileName = fileName,
-                            fileSizeFormatted = StorageSmartManager.formatBytes(totalBytes),
-                            totalBytes = totalBytes,
-                            transferredBytes = transferredSoFar,
-                            progress = (transferredSoFar.toFloat() / Math.max(1L, totalBytes)).coerceIn(0f, 1f),
-                            speedMbps = speed,
-                            isIncoming = true,
-                            peerName = clientDeviceName,
-                            status = TransferStatus.TRANSFERRING,
-                            localFilePath = tempFile.absolutePath
-                        )
-                        onProgressUpdate(record)
-                    }
+                if (fileSize < 0L || fileSize > totalBytes - declaredBytes ||
+                    !expectedSha.matches(Regex("^[0-9a-fA-F]{64}$"))) {
+                    output.writeBoolean(false)
+                    output.flush()
+                    return
                 }
 
-                // Verify SHA-256
-                val actualSha = FileIntegrityEngine.calculateFileSha256(tempFile)
-                val isVerified = FileIntegrityEngine.verifyChecksum(expectedSha, actualSha)
+                declaredBytes += fileSize
+                // Resume only a partial file with the same expected SHA-256 content.
+                val tempFile = File(receivedDir, ".aero_resume_${expectedSha.lowercase()}.part").canonicalFile
+                if (tempFile.parentFile != receivedDir.canonicalFile) {
+                    output.writeBoolean(false)
+                    output.flush()
+                    return
+                }
+                if (tempFile.exists() && (tempFile.length() > fileSize || fileSize == 0L)) {
+                    tempFile.delete()
+                }
+                val resumeOffset = if (tempFile.isFile) tempFile.length() else 0L
+                output.writeLong(resumeOffset)
+                output.flush()
 
-                val finalFile = AeroSecuritySanitizer.resolveUniqueFile(tempDir, fileName)
-                tempFile.renameTo(finalFile)
+                var fileTransferred = resumeOffset
+                transferredSoFar += resumeOffset
+                try {
+                    java.io.FileOutputStream(tempFile, resumeOffset > 0L).use { fos ->
+                        while (fileTransferred < fileSize) {
+                            val plainLength = input.readInt()
+                            if (plainLength !in 1..AeroTransferProtocol.TURBO_CHUNK_SIZE ||
+                                plainLength.toLong() > fileSize - fileTransferred) {
+                                throw IOException("Invalid encrypted chunk length.")
+                            }
+                            val encryptedLength = input.readInt()
+                            if (encryptedLength != plainLength + 28) {
+                                throw IOException("Invalid encrypted payload length.")
+                            }
+                            val encrypted = ByteArray(encryptedLength)
+                            input.readFully(encrypted)
+                            val aad = "file=$i;offset=$fileTransferred".toByteArray(Charsets.UTF_8)
+                            val plaintext = AeroCryptoEngine.decryptChunk(encrypted, sessionKey, aad)
+                            if (plaintext.size != plainLength) throw IOException("Decrypted chunk length mismatch.")
+                            fos.write(plaintext)
+                            fileTransferred += plaintext.size
+                            transferredSoFar += plaintext.size
+
+                            val elapsedSec = Math.max(0.1, (System.currentTimeMillis() - startTime) / 1000.0)
+                            val speed = ((transferredSoFar * 8f) / (elapsedSec * 1024 * 1024)).toFloat()
+
+                            val record = TransferRecord(
+                                id = req.requestId,
+                                fileName = fileName,
+                                fileSizeFormatted = StorageSmartManager.formatBytes(totalBytes),
+                                totalBytes = totalBytes,
+                                transferredBytes = transferredSoFar,
+                                progress = (transferredSoFar.toFloat() / Math.max(1L, totalBytes)).coerceIn(0f, 1f),
+                                speedMbps = speed,
+                                isIncoming = true,
+                                peerName = clientDeviceName,
+                                status = TransferStatus.TRANSFERRING,
+                                localFilePath = tempFile.absolutePath
+                            )
+                            onProgressUpdate(record)
+                        }
+                    }
+                } catch (ex: Exception) {
+                    // Keep a non-empty, incomplete verified-prefix candidate so a retry can resume.
+                    if (!tempFile.isFile || tempFile.length() <= 0L || tempFile.length() >= fileSize) {
+                        tempFile.delete()
+                    }
+                    throw ex
+                }
+
+                // Commit only a complete file whose checksum matches.
+                val complete = fileTransferred == fileSize
+                val actualSha = try {
+                    if (complete) FileIntegrityEngine.calculateFileSha256(tempFile) else ""
+                } catch (_: Exception) {
+                    ""
+                }
+                val checksumMatches = complete && FileIntegrityEngine.verifyChecksum(expectedSha, actualSha)
+                val totalMatches = i != filesCount - 1 || declaredBytes == totalBytes
+                val finalFile = AeroSecuritySanitizer.resolveUniqueFile(receivedDir, fileName)
+                val isVerified = if (checksumMatches && totalMatches) {
+                    try {
+                        val stagedSha = FileIntegrityEngine.calculateFileSha256(tempFile)
+                        FileIntegrityEngine.verifyChecksum(expectedSha, stagedSha) && tempFile.renameTo(finalFile)
+                    } catch (_: Exception) {
+                        false
+                    }
+                } else {
+                    false
+                }
+                if (!isVerified) tempFile.delete()
 
                 receiptItems.add(
                     FileReceiptItem(
                         fileName = fileName,
                         fileSizeBytes = fileSize,
                         sha256Checksum = actualSha,
-                        verified = isVerified
+                        verified = isVerified,
+                        localFilePath = if (isVerified) finalFile.absolutePath else null
                     )
                 )
 

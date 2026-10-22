@@ -56,6 +56,50 @@ class AeroEngineUnitTest {
     }
 
     @Test
+    fun testAesGcmRejectsTamperedCiphertext() {
+        val alice = AeroCryptoEngine.generateEcdhKeyPair()
+        val bob = AeroCryptoEngine.generateEcdhKeyPair()
+        val salt = ByteArray(32) { it.toByte() }
+        val shared = AeroCryptoEngine.computeSharedSecret(alice.private, bob.public)
+        val key = AeroCryptoEngine.deriveAesKey(shared, salt, "AeroDataTransfer")
+        val aad = "file=0;offset=0".toByteArray(StandardCharsets.UTF_8)
+        val plaintext = "private payload".toByteArray(StandardCharsets.UTF_8)
+        val encrypted = AeroCryptoEngine.encryptChunk(plaintext, 0, plaintext.size, key, aad)
+        encrypted[encrypted.lastIndex] = (encrypted.last().toInt() xor 0x01).toByte()
+
+        var rejected = false
+        try {
+            AeroCryptoEngine.decryptChunk(encrypted, key, aad)
+        } catch (_: Exception) {
+            rejected = true
+        }
+        assertTrue("AES-GCM must reject modified ciphertext", rejected)
+    }
+
+    @Test
+    fun testAesGcmRejectsWrongAdditionalAuthenticatedData() {
+        val alice = AeroCryptoEngine.generateEcdhKeyPair()
+        val bob = AeroCryptoEngine.generateEcdhKeyPair()
+        val salt = ByteArray(32) { (it * 3).toByte() }
+        val shared = AeroCryptoEngine.computeSharedSecret(alice.private, bob.public)
+        val key = AeroCryptoEngine.deriveAesKey(shared, salt, "AeroDataTransfer")
+        val plaintext = "authenticated chunk".toByteArray(StandardCharsets.UTF_8)
+        val encrypted = AeroCryptoEngine.encryptChunk(
+            plaintext, 0, plaintext.size, key, "file=1;offset=0".toByteArray(StandardCharsets.UTF_8)
+        )
+
+        var rejected = false
+        try {
+            AeroCryptoEngine.decryptChunk(
+                encrypted, key, "file=1;offset=4096".toByteArray(StandardCharsets.UTF_8)
+            )
+        } catch (_: Exception) {
+            rejected = true
+        }
+        assertTrue("AES-GCM must reject changed AAD", rejected)
+    }
+
+    @Test
     fun testSha256ChecksumIntegrity() {
         val payload = "Hello AeroShare P2P Offline Engine".toByteArray(StandardCharsets.UTF_8)
         val hash = FileIntegrityEngine.calculateSha256(payload)
@@ -155,5 +199,37 @@ class AeroEngineUnitTest {
         assertEquals(2, duplicates.size)
         assertTrue(duplicates.any { it.id == "1" })
         assertTrue(duplicates.any { it.id == "3" })
+    }
+
+    @Test
+    fun testCryptoRejectsMalformedChunkBoundsAndShortCiphertext() {
+        val alice = AeroCryptoEngine.generateEcdhKeyPair()
+        val bob = AeroCryptoEngine.generateEcdhKeyPair()
+        val shared = AeroCryptoEngine.computeSharedSecret(alice.private, bob.public)
+        val key = AeroCryptoEngine.deriveAesKey(shared, ByteArray(32) { it.toByte() }, "AeroDataTransfer")
+        var shortCiphertextRejected = false
+        try {
+            AeroCryptoEngine.decryptChunk(ByteArray(12), key, byteArrayOf())
+        } catch (_: IllegalArgumentException) {
+            shortCiphertextRejected = true
+        }
+        assertTrue("Short encrypted packets must be rejected before parsing", shortCiphertextRejected)
+
+        var invalidBoundsRejected = false
+        try {
+            AeroCryptoEngine.encryptChunk(byteArrayOf(1, 2, 3), 2, 2, key, byteArrayOf())
+        } catch (_: IllegalArgumentException) {
+            invalidBoundsRejected = true
+        }
+        assertTrue("Invalid plaintext slice bounds must be rejected", invalidBoundsRejected)
+    }
+
+    @Test
+    fun testSasCodeUsesSixDigits() {
+        val pairA = AeroCryptoEngine.generateEcdhKeyPair()
+        val pairB = AeroCryptoEngine.generateEcdhKeyPair()
+        val shared = AeroCryptoEngine.computeSharedSecret(pairA.private, pairB.public)
+        val code = AeroCryptoEngine.generateSasCode(shared, ByteArray(32) { (it + 1).toByte() })
+        assertTrue("SAS must always be six decimal digits", code.matches(Regex("\\d{6}")))
     }
 }

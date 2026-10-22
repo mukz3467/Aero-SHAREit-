@@ -33,6 +33,7 @@ import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Laptop
 import androidx.compose.material.icons.filled.PhoneAndroid
+import androidx.compose.material.icons.filled.Password
 import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Settings
@@ -137,7 +138,8 @@ fun HomeScreen(
             // Quick Tools Section
             item {
                 QuickToolsSection(
-                    onQrClick = { onNavigate(ActiveScreen.DISCOVERING_PEERS) },
+                    onPinCodeClick = { onNavigate(ActiveScreen.DISCOVERING_PEERS) },
+                    onQrScannerClick = { onNavigate(ActiveScreen.DISCOVERING_PEERS) },
                     onWebShareClick = { onNavigate(ActiveScreen.PHONE_TO_PC) },
                     onGroupRoomClick = { onNavigate(ActiveScreen.GROUP_ROOM) },
                     onClonePhoneClick = { onNavigate(ActiveScreen.PHONE_MIGRATION) }
@@ -193,7 +195,7 @@ private fun HomeHeaderSection(
                     )
                     Spacer(modifier = Modifier.width(4.dp))
                     Text(
-                        text = "5GHz Turbo",
+                        text = "Local Network",
                         color = AeroEmerald,
                         fontWeight = FontWeight.Bold,
                         fontSize = 11.sp
@@ -493,7 +495,8 @@ private fun CategoryTile(
 
 @Composable
 private fun QuickToolsSection(
-    onQrClick: () -> Unit,
+    onPinCodeClick: () -> Unit,
+    onQrScannerClick: () -> Unit,
     onWebShareClick: () -> Unit,
     onGroupRoomClick: () -> Unit,
     onClonePhoneClick: () -> Unit
@@ -517,17 +520,17 @@ private fun QuickToolsSection(
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             ToolCard(
-                icon = Icons.Default.QrCodeScanner,
-                title = "Scan QR",
-                subtitle = "Fast Pair",
-                onClick = onQrClick,
+                icon = Icons.Default.Password,
+                title = "PIN Code",
+                subtitle = "Connect with PIN",
+                onClick = onPinCodeClick,
                 modifier = Modifier.weight(1f)
             )
             ToolCard(
-                icon = Icons.Default.Laptop,
-                title = "PC Bridge",
-                subtitle = "Port 8844",
-                onClick = onWebShareClick,
+                icon = Icons.Default.QrCodeScanner,
+                title = "QR Scanner",
+                subtitle = "Scan to connect",
+                onClick = onQrScannerClick,
                 modifier = Modifier.weight(1f)
             )
         }
@@ -539,12 +542,27 @@ private fun QuickToolsSection(
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             ToolCard(
+                icon = Icons.Default.Laptop,
+                title = "PC Bridge",
+                subtitle = "Port 8844",
+                onClick = onWebShareClick,
+                modifier = Modifier.weight(1f)
+            )
+            ToolCard(
                 icon = Icons.Default.Group,
                 title = "Group Room",
                 subtitle = "Multi-Drop",
                 onClick = onGroupRoomClick,
                 modifier = Modifier.weight(1f)
             )
+        }
+
+        Spacer(modifier = Modifier.height(10.dp))
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
             ToolCard(
                 icon = Icons.Default.Sync,
                 title = "Clone Phone",
@@ -552,6 +570,7 @@ private fun QuickToolsSection(
                 onClick = onClonePhoneClick,
                 modifier = Modifier.weight(1f)
             )
+            Spacer(modifier = Modifier.weight(1f))
         }
     }
 }

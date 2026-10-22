@@ -30,7 +30,8 @@ data class NearbyDevice(
     val port: Int = 8829,
     val is5Ghz: Boolean = true,
     val signalStrength: Int = 95,
-    val deviceModel: String = "Android Device"
+    val deviceModel: String = "Android Device",
+    val pairingCode: String = ""
 )
 
 enum class TransferStatus {

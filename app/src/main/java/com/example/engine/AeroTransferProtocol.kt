@@ -6,7 +6,7 @@ object AeroTransferProtocol {
     const val SOCKET_BUFFER_SIZE = 256 * 1024 // 256 KB
     const val TURBO_CHUNK_SIZE = 64 * 1024 // 64 KB
     const val SOCKET_TIMEOUT_MS = 25000
-    const val MAX_CONCURRENT_CLIENTS = 4
+    const val MAX_CONCURRENT_CLIENTS = 1 // One pending approval at a time; avoids SafeDrop callback races
 
     const val MAGIC_HEADER: Int = 0x4145524F // "AERO"
     const val PROTOCOL_VERSION: Int = 2
