@@ -24,7 +24,7 @@ class PairingCodeManagerTest {
     fun repeatedWrongPinsExhaustInvitation() {
         val manager = PairingCodeManager(SecureRandom(), maxAttempts = 3)
         val invite = manager.createPin(nowMillis = 1_000)
-        repeat(3) { assertFalse(manager.consume("wrong!", nowMillis = 1_100 + it)) }
+        repeat(3) { assertFalse(manager.consume("wrong!", nowMillis = 1_100L + it)) }
         assertEquals(0, manager.attemptsRemaining(nowMillis = 1_200))
         assertFalse(manager.consume(invite.code, nowMillis = 1_300))
     }
