@@ -40,6 +40,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         requestStoragePermissionsIfNeeded()
+        requestNearbyPermissionsIfNeeded()
         setContent {
             AeroShareTheme {
                 val state by transferViewModel.uiState.collectAsState()
@@ -50,6 +51,25 @@ class MainActivity : ComponentActivity() {
                 )
             }
         }
+    }
+
+
+    private val nearbyPermissionLauncher = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { }
+
+    private fun requestNearbyPermissionsIfNeeded() {
+        val required = mutableListOf<String>()
+        if (Build.VERSION.SDK_INT >= 31) {
+            required.add(Manifest.permission.BLUETOOTH_SCAN)
+            required.add(Manifest.permission.BLUETOOTH_CONNECT)
+            required.add(Manifest.permission.BLUETOOTH_ADVERTISE)
+        } else if (Build.VERSION.SDK_INT >= 29) {
+            required.add(Manifest.permission.ACCESS_FINE_LOCATION)
+        } else if (Build.VERSION.SDK_INT >= 23) {
+            required.add(Manifest.permission.ACCESS_COARSE_LOCATION)
+        }
+        if (Build.VERSION.SDK_INT >= 33) required.add(Manifest.permission.NEARBY_WIFI_DEVICES)
+        val missing = required.distinct().filter { checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED }
+        if (missing.isNotEmpty()) nearbyPermissionLauncher.launch(missing.toTypedArray())
     }
 
     private fun requestStoragePermissionsIfNeeded() {
