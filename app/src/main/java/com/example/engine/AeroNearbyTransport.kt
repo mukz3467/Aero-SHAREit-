@@ -2,6 +2,7 @@ package com.example.engine
 
 import android.content.Context
 import android.os.Build
+import android.provider.OpenableColumns
 import com.google.android.gms.nearby.Nearby
 import com.google.android.gms.nearby.connection.AdvertisingOptions
 import com.google.android.gms.nearby.connection.ConnectionInfo
@@ -166,7 +167,14 @@ class AeroNearbyTransport(
                 val uri = payload.asFile()?.asUri()
                 if (uri != null) {
                     try {
-                        val destination = File(appContext.cacheDir, "aero_received_" + update.payloadId)
+                        val suppliedName = appContext.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+                            if (cursor.moveToFirst()) {
+                                val index = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                                if (index >= 0) cursor.getString(index) else null
+                            } else null
+                        }
+                        val safeName = (suppliedName ?: "received_" + update.payloadId).replace(Regex("[^A-Za-z0-9._ -]"), "_").take(120)
+                        val destination = File(appContext.cacheDir, safeName)
                         appContext.contentResolver.openInputStream(uri)?.use { input ->
                             destination.outputStream().use { output -> input.copyTo(output) }
                         } ?: throw IllegalStateException("Cannot open incoming file payload.")
