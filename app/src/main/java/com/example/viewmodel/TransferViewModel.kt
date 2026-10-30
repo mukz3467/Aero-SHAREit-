@@ -328,7 +328,7 @@ class TransferViewModel(application: Application) : AndroidViewModel(application
                     context.contentResolver.openInputStream(uri)?.use { input ->
                         staged.outputStream().use { output -> input.copyTo(output) }
                     } ?: throw IllegalStateException("Cannot read " + item.name)
-                    nearbyTransport?.sendFile(endpointId, staged)
+                    nearbyTransport?.sendFile(endpointId, staged, item.name)
                 }
             } catch (error: Exception) {
                 _uiState.update { it.copy(
