@@ -195,7 +195,7 @@ class AeroNearbyTransport(
         }
     }
 
-    fun sendFile(endpointId: String, file: File) {
+    fun sendFile(endpointId: String, file: File, displayName: String = file.name) {
         if (endpointId !in connected) {
             listener.onError("The receiver is not connected.")
             return
@@ -204,7 +204,7 @@ class AeroNearbyTransport(
             listener.onError("Selected file cannot be read: ${file.name}")
             return
         }
-        val payload = Payload.fromFile(file).apply { setFileName(file.name) }
+        val payload = Payload.fromFile(file).apply { setFileName(displayName) }
         client.sendPayload(endpointId, payload)
             .addOnFailureListener { error ->
                 listener.onError("File transfer could not start: ${error.localizedMessage ?: "unknown error"}")
