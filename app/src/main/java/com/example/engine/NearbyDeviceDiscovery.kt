@@ -26,6 +26,7 @@ class NearbyDeviceDiscovery(
     private val deviceNameProvider: () -> String,
     private val onDevicesChanged: (List<NearbyDevice>) -> Unit,
     private val onLocalPairingCode: (String) -> Unit = {},
+    private val onLocalQrPayload: (String) -> Unit = {},
     private val tcpPort: Int = AeroTransferProtocol.DEFAULT_PORT
 ) {
     companion object {
@@ -71,6 +72,14 @@ class NearbyDeviceDiscovery(
                             deviceNameProvider().take(80).toByteArray(Charsets.UTF_8),
                             Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING
                         )
+                        val localIp = findLocalIpv4Address()
+                        val qrPayload = localIp?.let {
+                            "AEROSHARE_CONNECT_V1|$it|$tcpPort|$pairingCode|$safeName"
+                        }.orEmpty()
+                        if (qrPayload != lastQrPayload) {
+                            lastQrPayload = qrPayload
+                            onLocalQrPayload(qrPayload)
+                        }
                         val message = "$MAGIC|$instanceId|$tcpPort|$safeName|$pairingCode".toByteArray(Charsets.UTF_8)
                         val packet = DatagramPacket(message, message.size)
                         try {
@@ -130,6 +139,30 @@ class NearbyDeviceDiscovery(
                     }
                 }
             }
+        }
+    }
+
+    /**
+     * Returns a private/link-local IPv4 address that another device on this LAN
+     * can use to reach the TCP receiver. This QR flow does not create Wi-Fi Direct.
+     */
+    private fun findLocalIpv4Address(): String? {
+        return try {
+            val interfaces = Collections.list(NetworkInterface.getNetworkInterfaces())
+                .filter { it.isUp && !it.isLoopback }
+            val candidates = interfaces.flatMap { network ->
+                network.interfaceAddresses.mapNotNull { address ->
+                    val ipv4 = address.address as? java.net.Inet4Address ?: return@mapNotNull null
+                    if (ipv4.isLoopbackAddress || ipv4.isMulticastAddress ||
+                        (!ipv4.isSiteLocalAddress && !ipv4.isLinkLocalAddress)) return@mapNotNull null
+                    network.name.lowercase() to ipv4.hostAddress
+                }
+            }
+            candidates.firstOrNull { (name, _) ->
+                name.contains("wlan") || name.contains("wifi") || name.contains("swlan") || name.contains("ap")
+            }?.second ?: candidates.firstOrNull()?.second
+        } catch (_: Exception) {
+            null
         }
     }
 
