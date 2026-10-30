@@ -21,22 +21,33 @@ object LocalMediaStoreExplorer {
         val counts = mutableMapOf<FileCategory, Int>()
         val sizes = mutableMapOf<FileCategory, Long>()
 
-        // 1. Photos
         queryCategory(context, MediaStore.Images.Media.EXTERNAL_CONTENT_URI, FileCategory.PHOTOS, files, counts, sizes)
-
-        // 2. Videos
         queryCategory(context, MediaStore.Video.Media.EXTERNAL_CONTENT_URI, FileCategory.VIDEOS, files, counts, sizes)
-
-        // 3. Audio
         queryCategory(context, MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, FileCategory.AUDIO, files, counts, sizes)
 
-        // 4. Documents & Files
         val filesUri = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL)
         } else {
             MediaStore.Files.getContentUri("external")
         }
         queryFiles(context, filesUri, files, counts, sizes)
+
+        return MediaStoreScanResult(
+            allFiles = files,
+            categoryCounts = counts,
+            categorySizes = sizes,
+            hasPermission = true
+        )
+    }
+
+    fun queryGalleryOnly(context: Context): MediaStoreScanResult {
+        val files = mutableListOf<FileItem>()
+        val counts = mutableMapOf<FileCategory, Int>()
+        val sizes = mutableMapOf<FileCategory, Long>()
+
+        queryCategory(context, MediaStore.Images.Media.EXTERNAL_CONTENT_URI, FileCategory.PHOTOS, files, counts, sizes)
+        queryCategory(context, MediaStore.Video.Media.EXTERNAL_CONTENT_URI, FileCategory.VIDEOS, files, counts, sizes)
+        queryCategory(context, MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, FileCategory.AUDIO, files, counts, sizes)
 
         return MediaStoreScanResult(
             allFiles = files,
