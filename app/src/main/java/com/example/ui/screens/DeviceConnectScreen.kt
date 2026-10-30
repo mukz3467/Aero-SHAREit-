@@ -195,10 +195,11 @@ private fun ReceiveBeaconView(
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(text = "Device: $deviceName", fontSize = 12.sp, color = AeroTextSecondary)
                     Text(text = "Network: Same local Wi-Fi • TCP port 8829", fontSize = 12.sp, color = AeroTextSecondary)
-                    Text(text = "Safety: Incoming approval + SHA-256 file verification", fontSize = 12.sp, color = AeroSecondaryGreen, fontWeight = FontWeight.SemiBold)
+                    Text(text = "Safety: Receiver approval + encrypted transfer + SHA-256 verification", fontSize = 12.sp, color = AeroSecondaryGreen, fontWeight = FontWeight.SemiBold)
                     Spacer(modifier = Modifier.height(12.dp))
-                    Text(text = "Your 6-digit PIN", fontSize = 12.sp, color = AeroTextSecondary)
+                    Text(text = "Your 6-digit discovery code", fontSize = 12.sp, color = AeroTextSecondary)
                     Text(text = pairingCode.ifBlank { "Starting…" }, fontSize = 30.sp, fontWeight = FontWeight.ExtraBold, color = AeroEmerald)
+                    Text(text = "This code is visible to devices on the same local network. It identifies a discovered device; it does not authenticate it.", fontSize = 11.sp, color = AeroTextSecondary)
                     if (pairingCode.length == 6) {
                         Spacer(modifier = Modifier.height(8.dp))
                         AndroidView(
@@ -263,19 +264,19 @@ private fun SendDiscoveryView(
                 shape = RoundedCornerShape(16.dp)
             ) {
                 Column(modifier = Modifier.fillMaxWidth().padding(14.dp)) {
-                    Text("Connect with PIN", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = AeroTextPrimary)
+                    Text("Connect with discovery code", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = AeroTextPrimary)
                     Spacer(modifier = Modifier.height(6.dp))
                     OutlinedTextField(
                         value = pinInput,
                         onValueChange = { pinInput = it.filter(Char::isDigit).take(6) },
                         modifier = Modifier.fillMaxWidth(),
-                        label = { Text("6-digit receiver PIN") },
+                        label = { Text("6-digit receiver discovery code") },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         singleLine = true
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                        Button(onClick = { onConnectWithPin(pinInput) }, enabled = pinInput.length == 6, modifier = Modifier.weight(1f)) { Text("Connect with PIN") }
+                        Button(onClick = { onConnectWithPin(pinInput) }, enabled = pinInput.length == 6, modifier = Modifier.weight(1f)) { Text("Connect") }
                         Button(onClick = {
                             if (hasCameraPermission) scanning = true
                             else cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
