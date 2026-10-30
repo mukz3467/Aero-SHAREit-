@@ -77,7 +77,6 @@ fun DeviceConnectScreen(
     onBack: () -> Unit,
     onSelectPeer: (NearbyDevice) -> Unit,
     onConnectWithPin: (String) -> Unit,
-    localPairingCode: String,
     localQrPayload: String,
     modifier: Modifier = Modifier
 ) {
@@ -126,7 +125,6 @@ fun DeviceConnectScreen(
             if (isReceiveMode) {
                 ReceiveBeaconView(
                     deviceName = uiState.deviceName,
-                    pairingCode = localPairingCode,
                     qrPayload = localQrPayload
                 )
             } else {
@@ -143,7 +141,6 @@ fun DeviceConnectScreen(
 @Composable
 private fun ReceiveBeaconView(
     deviceName: String,
-    pairingCode: String,
     qrPayload: String
 ) {
     LazyColumn(
