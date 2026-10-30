@@ -339,6 +339,17 @@ class TransferViewModel(application: Application) : AndroidViewModel(application
 
     fun connectUsingPairingCode(code: String) {
         val rawValue = code.trim()
+        if (rawValue.startsWith("AEROSHARE_NEARBY_V1|")) {
+            val token = rawValue.substringAfter("|")
+            if (!token.matches(Regex("[A-Za-z0-9_-]{24,64}"))) {
+                _uiState.update { it.copy(storageCleanerMessage = "Invalid Aero SHAREit QR code.") }
+                return
+            }
+            nearbyToken = token
+            sendingNearby = true
+            nearbyTransport?.startSending(token)
+            return
+        }
         val qrPeer = parseReceiverQrPayload(rawValue)
         if (qrPeer != null) {
             selectQrReceiver(qrPeer)
@@ -438,6 +449,8 @@ class TransferViewModel(application: Application) : AndroidViewModel(application
 
     fun navigateTo(screen: ActiveScreen) {
         _uiState.update { it.copy(currentScreen = screen) }
+        if (screen == ActiveScreen.RECEIVING_BEACON) startNearbyReceiving()
+        if (screen == ActiveScreen.HOME) nearbyTransport?.stopAll()
         updateAutopilot()
     }
 
@@ -948,6 +961,7 @@ class TransferViewModel(application: Application) : AndroidViewModel(application
         serverEngine?.stop()
         discoveryEngine?.stop()
         pcBridgeServer?.stop()
+        nearbyTransport?.stopAll()
         clientEngine?.cancel()
     }
 }
