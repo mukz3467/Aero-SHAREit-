@@ -7,8 +7,6 @@ import android.widget.ImageView
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
 import androidx.compose.ui.viewinterop.AndroidView
@@ -44,7 +42,6 @@ import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material.icons.filled.WifiTethering
 import androidx.compose.material3.Button
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
@@ -80,7 +77,7 @@ fun DeviceConnectScreen(
     onBack: () -> Unit,
     onSelectPeer: (NearbyDevice) -> Unit,
     onConnectWithPin: (String) -> Unit,
-    localPairingCode: String,
+    localQrPayload: String,
     modifier: Modifier = Modifier
 ) {
     BackHandler { onBack() }
@@ -128,7 +125,7 @@ fun DeviceConnectScreen(
             if (isReceiveMode) {
                 ReceiveBeaconView(
                     deviceName = uiState.deviceName,
-                    pairingCode = localPairingCode
+                    qrPayload = localQrPayload
                 )
             } else {
                 SendDiscoveryView(
@@ -144,7 +141,7 @@ fun DeviceConnectScreen(
 @Composable
 private fun ReceiveBeaconView(
     deviceName: String,
-    pairingCode: String
+    qrPayload: String
 ) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -160,7 +157,7 @@ private fun ReceiveBeaconView(
             )
             Spacer(modifier = Modifier.height(4.dp))
             Text(
-                text = "Keep both devices on the same local Wi-Fi network. After approval and SHA-256 verification, received files are saved in Aero SHAREit's app-specific Downloads folder.",
+                text = "Show this QR to the sender. Both phones must be on the same Wi-Fi or hotspot; internet is not required. Received files are saved in Aero SHAREit's app-specific Downloads folder.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = AeroTextSecondary,
                 fontSize = 13.sp
@@ -194,19 +191,19 @@ private fun ReceiveBeaconView(
                     }
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(text = "Device: $deviceName", fontSize = 12.sp, color = AeroTextSecondary)
-                    Text(text = "Network: Same local Wi-Fi • TCP port 8829", fontSize = 12.sp, color = AeroTextSecondary)
-                    Text(text = "Safety: Incoming approval + SHA-256 file verification", fontSize = 12.sp, color = AeroSecondaryGreen, fontWeight = FontWeight.SemiBold)
+                    Text(text = "Network: Same local network or hotspot • TCP port 8829", fontSize = 12.sp, color = AeroTextSecondary)
+                    Text(text = "Security: Encrypted transfer + SHA-256 verification; approval depends on SafeDrop setting", fontSize = 12.sp, color = AeroSecondaryGreen, fontWeight = FontWeight.SemiBold)
                     Spacer(modifier = Modifier.height(12.dp))
-                    Text(text = "Your 6-digit PIN", fontSize = 12.sp, color = AeroTextSecondary)
-                    Text(text = pairingCode.ifBlank { "Starting…" }, fontSize = 30.sp, fontWeight = FontWeight.ExtraBold, color = AeroEmerald)
-                    if (pairingCode.length == 6) {
+                    Text(text = "Scan this QR code from the sending phone", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = AeroTextPrimary)
+                    Text(text = if (qrPayload.isNotBlank()) "Ready to connect" else "Waiting for local Wi-Fi address…", fontSize = 12.sp, color = AeroTextSecondary)
+                    if (qrPayload.isNotBlank()) {
                         Spacer(modifier = Modifier.height(8.dp))
                         AndroidView(
                             modifier = Modifier.size(180.dp).align(Alignment.CenterHorizontally),
                             factory = { context ->
                                 ImageView(context).apply {
                                     scaleType = ImageView.ScaleType.FIT_CENTER
-                                    val matrix = MultiFormatWriter().encode("AEROSHARE:$pairingCode", BarcodeFormat.QR_CODE, 420, 420, mapOf(EncodeHintType.MARGIN to 1))
+                                    val matrix = MultiFormatWriter().encode(qrPayload, BarcodeFormat.QR_CODE, 420, 420, mapOf(EncodeHintType.MARGIN to 1))
                                     val bitmap = Bitmap.createBitmap(420, 420, Bitmap.Config.ARGB_8888)
                                     for (x in 0 until 420) for (y in 0 until 420) bitmap.setPixel(x, y, if (matrix[x, y]) android.graphics.Color.BLACK else android.graphics.Color.WHITE)
                                     setImageBitmap(bitmap)
@@ -227,7 +224,6 @@ private fun SendDiscoveryView(
     onSelectPeer: (NearbyDevice) -> Unit,
     onConnectWithPin: (String) -> Unit
 ) {
-    var pinInput by remember { mutableStateOf("") }
     var scanning by remember { mutableStateOf(false) }
     val scannerView = remember { mutableStateOf<DecoratedBarcodeView?>(null) }
     val context = LocalContext.current
@@ -263,23 +259,16 @@ private fun SendDiscoveryView(
                 shape = RoundedCornerShape(16.dp)
             ) {
                 Column(modifier = Modifier.fillMaxWidth().padding(14.dp)) {
-                    Text("Connect with PIN", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = AeroTextPrimary)
-                    Spacer(modifier = Modifier.height(6.dp))
-                    OutlinedTextField(
-                        value = pinInput,
-                        onValueChange = { pinInput = it.filter(Char::isDigit).take(6) },
-                        modifier = Modifier.fillMaxWidth(),
-                        label = { Text("6-digit receiver PIN") },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        singleLine = true
-                    )
+                    Text("Connect to receiver", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = AeroTextPrimary)
                     Spacer(modifier = Modifier.height(8.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                        Button(onClick = { onConnectWithPin(pinInput) }, enabled = pinInput.length == 6, modifier = Modifier.weight(1f)) { Text("Connect with PIN") }
-                        Button(onClick = {
+                    Button(
+                        onClick = {
                             if (hasCameraPermission) scanning = true
                             else cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
-                        }, modifier = Modifier.weight(1f)) { Text("Scan QR") }
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Scan QR to Connect")
                     }
                     uiState.storageCleanerMessage?.let { message ->
                         Spacer(modifier = Modifier.height(6.dp))
@@ -293,11 +282,13 @@ private fun SendDiscoveryView(
                                 DecoratedBarcodeView(ctx).apply {
                                     scannerView.value = this
                                     decodeContinuous { result ->
-                                        val scannedCode = result.text.substringAfter("AEROSHARE:", result.text).filter(Char::isDigit)
-                                        if (scannedCode.length == 6) {
+                                        val scannedPayload = result.text.trim()
+                                        if (scannedPayload.startsWith("AEROSHARE_CONNECT_V1|") ||
+                                            scannedPayload.matches(Regex("\\d{6}")) ||
+                                            scannedPayload.matches(Regex("AEROSHARE:\\d{6}"))) {
                                             scanning = false
                                             pause()
-                                            post { onConnectWithPin(scannedCode) }
+                                            post { onConnectWithPin(scannedPayload) }
                                         }
                                     }
                                     resume()

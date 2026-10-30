@@ -1,43 +1,81 @@
-# Aero TrustLink security integration status
+# Aero TrustLink security and transport status
 
-This document records the security components currently present on
-`feature/offline-mesh-foundation`. It is not a security certification.
+This document describes the implementation currently present on
+`feature/offline-mesh-foundation`. It is an engineering status note, not a
+security certification or a claim that all advertised transfer modes work.
 
-## Implemented primitives
+## Implemented in the active LAN file-transfer path
 
-- `EndToEndCrypto`: ephemeral ECDH key pairs, HKDF-SHA-256 session-key derivation,
-  AES-256-GCM authenticated encryption/decryption, associated-data support, and a
-  six-digit short authentication string derived from the session key and transcript.
-- `PairingCodeManager`: short-lived, single-use six-digit PIN invitations and
-  high-entropy URL-safe QR tokens, with per-invitation attempt limits.
-- `OfflineMeshRouter`: platform-independent route-learning and relay-envelope
-  logic; retry behavior no longer consumes message deduplication state when no
-  route exists.
+- Nearby-device discovery uses UDP broadcast on the local IP network.
+- File transfer uses a TCP connection on the local network.
+- The active client/server transfer path creates ephemeral ECDH P-256 key pairs,
+  derives an AES-256 key using HKDF-SHA-256, and encrypts/decrypts file chunks
+  with AES-GCM. The file index and chunk offset are included as AEAD associated data.
+- The receiver checks file SHA-256 before committing the received file and displays
+  an incoming-transfer approval request when SafeDrop approval is enabled.
+- Packet sizes, file counts, batch size, socket timeouts, and concurrent incoming
+  connections have bounds in the current transfer implementation.
+- `EndToEndCrypto` and `PairingCodeManager` contain additional standalone
+  cryptographic/invitation helpers and unit tests. They are not yet integrated into
+  the active transfer handshake.
 
-## Required integration before release
+## Pairing and identity limitations
 
-1. Bind a canonical transcript containing protocol version, both device identities,
-   roles, and the chosen QR/PIN invitation to the ECDH-derived key context.
-2. Require both peers to compare/confirm the short authentication string or
-   verify an authenticated QR transcript before trusting the session. ECDH alone
-   does not prevent man-in-the-middle attacks.
-3. Integrate encryption/decryption into the actual file-chunk transport. Relay
-   nodes must forward ciphertext only and must never receive endpoint keys.
-4. Make invitation attempt limits effective across the discovery/transport layer;
-   a local in-memory counter alone cannot prevent distributed brute-force attempts.
-5. Use unique nonces per AES-GCM key. Do not reuse a nonce with the same session
-   key; define sequence numbers and authenticate transfer/file/chunk metadata as AAD.
-6. Authenticate the receiver's explicit approval, enforce bounded packet lengths,
-   timeouts, concurrency limits, and safe failure/recovery behavior.
-7. Integrate Wi-Fi Direct or another real offline radio transport and test on
-   multiple physical Android devices. Unit tests cannot prove radio reach or mesh range.
-8. Review key lifecycle, logging, backups, temporary-file handling, and release build
-   configuration; perform independent security review before claiming strong security.
+- The active discovery PIN is generated locally and broadcast in the UDP discovery
+  packet. It is therefore visible to devices on the same local network.
+- The receiver QR now encodes the receiver's local IPv4 address, TCP port,
+  six-digit discovery code, and display name. Scanning it lets the sender select
+  the receiver directly without waiting for the UDP peer list to populate.
+- The QR payload is a connection locator, not an authenticated invitation or a
+  cryptographic identity credential. The active TCP server does not validate the
+  six-digit code as a one-time invitation, and the `PairingCodeManager`
+  expiry/attempt limits are not enforced by the active path.
+- The QR flow still requires both phones to share a reachable local Wi-Fi network
+  or hotspot. It does not create a Wi-Fi Direct group and does not require internet.
+- The active ECDH exchange does not authenticate either public key. Encryption
+  protects traffic against passive observers after key agreement, but an active
+  man-in-the-middle can substitute keys unless a separate authenticated check is
+  implemented.
+- The standalone short-authentication-string helper is not shown to users in the
+  active transfer flow, and there is no verified mutual SAS confirmation yet.
+- Device names and discovery packets are self-asserted and can be spoofed on the LAN.
+- If SafeDrop approval is disabled, incoming requests are automatically approved.
+  Keep approval enabled when accepting transfers from untrusted local networks.
 
-## Current limitations
+## Offline and mesh limitations
 
-The pairing-code helper and crypto primitives are not yet wired into the Android UI,
-discovery, or the existing file-transfer protocol. QR/PIN codes currently represent
-invitation lifecycle only; they do not themselves locate a remote phone. No claim is
-made that the app is already fully secure, that all mesh transfers work, or that
-100-meter/800-meter radio range is guaranteed.
+- Current discovery and transfer require both devices to share a reachable local
+  IP network (for example, the same Wi-Fi network or a configured hotspot). The
+  receiver QR supplies its local IP and TCP port to simplify peer selection.
+- The discovery code does not create a Wi-Fi Direct group. The current discovery
+  class explicitly performs LAN broadcast discovery and does not negotiate Wi-Fi
+  Direct.
+- `OfflineMeshRouter` currently provides route-learning/relay-envelope logic and
+  unit tests, but it is not proof of a working multi-hop radio mesh transport.
+- No fixed 100 m or 800 m range, cross-network reach, or internet-free operation
+  outside a shared local network is guaranteed by the current implementation.
+
+## Required before a security or mesh-ready release
+
+1. Bind protocol version, both peer identities/roles, ephemeral public keys, and
+   invitation material into a canonical authenticated transcript.
+2. Require both endpoints to verify the same short authentication string or use
+   a properly authenticated QR exchange before accepting the session key.
+3. Validate pairing invitations on the receiver side, enforce expiry and attempt
+   limits at the transport boundary, and rate-limit repeated connection attempts.
+4. Prevent discovery spoofing from being treated as trusted identity; authenticate
+   the peer before showing a trusted-device state.
+5. Connect relay routing to an actual supported radio/network transport, or describe
+   the feature as LAN-only routing logic rather than a functioning mesh.
+6. Test sender-to-receiver transfers, rejection, cancellation, resume, large files,
+   storage exhaustion, and tampered traffic on multiple physical Android devices.
+7. Review key lifecycle, nonce handling, logs, temporary files, backup behavior,
+   and release configuration; obtain an independent security review before making
+   strong security claims.
+
+## Verification status
+
+Unit tests cover selected helper and routing behavior. GitHub Actions must pass the
+debug APK build and unit-test tasks for the exact commit before build success is
+claimed. CI does not replace physical-device testing or an independent security
+review.
