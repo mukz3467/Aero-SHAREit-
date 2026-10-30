@@ -102,7 +102,8 @@ private fun AeroAppContent(
             onBack = { viewModel.navigateTo(ActiveScreen.FILE_BROWSER) },
             onSelectPeer = viewModel::startTransferToPeer,
             onConnectWithPin = viewModel::connectUsingPairingCode,
-            localPairingCode = state.localPairingCode
+            localPairingCode = state.localPairingCode,
+            localQrPayload = state.localQrPayload
         )
 
         ActiveScreen.RECEIVING_BEACON -> DeviceConnectScreen(
@@ -111,7 +112,8 @@ private fun AeroAppContent(
             onBack = { viewModel.navigateTo(ActiveScreen.HOME) },
             onSelectPeer = viewModel::startTransferToPeer,
             onConnectWithPin = viewModel::connectUsingPairingCode,
-            localPairingCode = state.localPairingCode
+            localPairingCode = state.localPairingCode,
+            localQrPayload = state.localQrPayload
         )
 
         ActiveScreen.ACTIVE_TRANSFER -> TransferProgressScreen(
