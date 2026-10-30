@@ -67,7 +67,7 @@ class AeroNearbyTransport(
         activeToken = qrToken
         val endpointName = ENDPOINT_PREFIX + qrToken
         client.startAdvertising(
-            Build.MODEL.take(30),
+            endpointName,
             SERVICE_ID,
             lifecycleCallback,
             AdvertisingOptions.Builder().setStrategy(strategy).build()
