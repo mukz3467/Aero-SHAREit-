@@ -242,6 +242,101 @@ class TransferViewModel(application: Application) : AndroidViewModel(application
         ).also { it.start() }
     }
 
+
+    private fun initNearbyTransport() {
+        nearbyTransport = AeroNearbyTransport(getApplication(), object : AeroNearbyTransport.Listener {
+            override fun onReady() {
+                _uiState.update { it.copy(localQrPayload = "AEROSHARE_NEARBY_V1|" + nearbyToken) }
+            }
+            override fun onPeerFound(endpointId: String, endpointName: String) {
+                _uiState.update { it.copy(storageCleanerMessage = "Receiver found. Connecting automatically…") }
+            }
+            override fun onConnected(endpointId: String) {
+                _uiState.update { it.copy(storageCleanerMessage = "Connected. Starting transfer…") }
+                if (sendingNearby) sendSelectedFilesNearby(endpointId)
+            }
+            override fun onDisconnected(endpointId: String) {
+                _uiState.update { it.copy(storageCleanerMessage = "Nearby device disconnected.") }
+            }
+            override fun onIncomingFile(endpointId: String, file: File, payloadId: Long) {
+                viewModelScope.launch {
+                    try {
+                        val folder = File(getApplication<Application>().filesDir, "Downloads").apply { mkdirs() }
+                        val safeName = file.name.replace(Regex("[^A-Za-z0-9._ -]"), "_").take(120)
+                        val destination = File(folder, safeName).let {
+                            if (it.exists()) File(folder, System.currentTimeMillis().toString() + "_" + safeName) else it
+                        }
+                        file.copyTo(destination)
+                        _uiState.update { it.copy(storageCleanerMessage = "Received " + destination.name + " in Aero SHAREit Downloads.") }
+                    } catch (error: Exception) {
+                        _uiState.update { it.copy(storageCleanerMessage = "Could not save received file: " + error.localizedMessage) }
+                    }
+                }
+            }
+            override fun onPayloadProgress(endpointId: String, payloadId: Long, transferred: Long, total: Long, status: Int) {
+                _uiState.update { state ->
+                    val current = state.activeTransferRecord ?: return@update state
+                    val done = status == com.google.android.gms.nearby.connection.PayloadTransferUpdate.Status.SUCCESS
+                    state.copy(activeTransferRecord = current.copy(
+                        transferredBytes = transferred,
+                        progress = if (total > 0L) transferred.toFloat() / total else current.progress,
+                        status = if (done) TransferStatus.COMPLETED else TransferStatus.TRANSFERRING
+                    ))
+                }
+            }
+            override fun onError(message: String) {
+                _uiState.update { it.copy(storageCleanerMessage = message) }
+            }
+        })
+    }
+
+    private fun startNearbyReceiving() {
+        sendingNearby = false
+        nearbyToken = UUID.randomUUID().toString().replace("-", "") + UUID.randomUUID().toString().take(8)
+        _uiState.update { it.copy(localQrPayload = "AEROSHARE_NEARBY_V1|" + nearbyToken) }
+        nearbyTransport?.startReceiving(nearbyToken)
+    }
+
+    private fun sendSelectedFilesNearby(endpointId: String) {
+        val context = getApplication<Application>()
+        val selected = _uiState.value.availableFiles.filter { _uiState.value.selectedFiles.contains(it.id) }
+        if (selected.isEmpty()) {
+            _uiState.update { it.copy(storageCleanerMessage = "Connected. Select files to send.") }
+            return
+        }
+        val totalBytes = selected.sumOf { it.sizeBytes }
+        val record = TransferRecord(
+            id = UUID.randomUUID().toString(),
+            fileName = if (selected.size == 1) selected.first().name else "Batch (" + selected.size + " files)",
+            fileSizeFormatted = StorageSmartManager.formatBytes(totalBytes),
+            totalBytes = totalBytes,
+            transferredBytes = 0L,
+            progress = 0f,
+            speedMbps = 0f,
+            isIncoming = false,
+            peerName = "Nearby Aero SHAREit device",
+            status = TransferStatus.TRANSFERRING
+        )
+        _uiState.update { it.copy(activeTransferRecord = record, currentScreen = ActiveScreen.ACTIVE_TRANSFER) }
+        viewModelScope.launch {
+            try {
+                selected.forEachIndexed { index, item ->
+                    val uri = item.uri ?: throw IllegalStateException("File URI unavailable: " + item.name)
+                    val staged = File(context.cacheDir, "nearby_" + System.currentTimeMillis() + "_" + index)
+                    context.contentResolver.openInputStream(uri)?.use { input ->
+                        staged.outputStream().use { output -> input.copyTo(output) }
+                    } ?: throw IllegalStateException("Cannot read " + item.name)
+                    nearbyTransport?.sendFile(endpointId, staged)
+                }
+            } catch (error: Exception) {
+                _uiState.update { it.copy(
+                    activeTransferRecord = it.activeTransferRecord?.copy(status = TransferStatus.FAILED),
+                    storageCleanerMessage = "Nearby transfer failed: " + error.localizedMessage
+                ) }
+            }
+        }
+    }
+
     fun connectUsingPairingCode(code: String) {
         val rawValue = code.trim()
         val qrPeer = parseReceiverQrPayload(rawValue)
