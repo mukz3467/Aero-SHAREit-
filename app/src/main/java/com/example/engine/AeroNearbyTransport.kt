@@ -93,16 +93,14 @@ class AeroNearbyTransport(
             serviceId(scannedQrToken),
             object : EndpointDiscoveryCallback() {
                 override fun onEndpointFound(endpointId: String, info: DiscoveredEndpointInfo) {
-                    if (info.endpointName == ENDPOINT_PREFIX + scannedQrToken) {
-                        discovered[endpointId] = info.endpointName
-                        listener.onPeerFound(endpointId, Build.MODEL)
-                        client.requestConnection(
-                            Build.MODEL.take(30),
-                            endpointId,
-                            lifecycleCallback
-                        ).addOnFailureListener { error ->
-                            listener.onError("Connection request failed: ${error.localizedMessage ?: "unknown error"}")
-                        }
+                    discovered[endpointId] = info.endpointName
+                    listener.onPeerFound(endpointId, info.endpointName)
+                    client.requestConnection(
+                        Build.MODEL.take(30),
+                        endpointId,
+                        lifecycleCallback
+                    ).addOnFailureListener { error ->
+                        listener.onError("Connection request failed: ${error.localizedMessage ?: "unknown error"}")
                     }
                 }
 
