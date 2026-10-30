@@ -47,7 +47,6 @@ class AeroNearbyTransport(
 
     companion object {
         const val SERVICE_ID = "com.aistudio.aeroshare.kxveqm.NEARBY_V1"
-        private const val ENDPOINT_PREFIX = "AERO_QR_V1:"
     }
 
     private val appContext = context.applicationContext
@@ -67,10 +66,10 @@ class AeroNearbyTransport(
         }
         stopDiscovery()
         activeToken = qrToken
-        val endpointName = ENDPOINT_PREFIX + qrToken
+        val endpointName = Build.MODEL.take(30)
         client.startAdvertising(
             endpointName,
-            SERVICE_ID,
+            serviceId(qrToken),
             lifecycleCallback,
             AdvertisingOptions.Builder().setStrategy(strategy).build()
         ).addOnSuccessListener {
@@ -91,7 +90,7 @@ class AeroNearbyTransport(
         activeToken = scannedQrToken
         discovered.clear()
         client.startDiscovery(
-            SERVICE_ID,
+            serviceId(scannedQrToken),
             object : EndpointDiscoveryCallback() {
                 override fun onEndpointFound(endpointId: String, info: DiscoveredEndpointInfo) {
                     if (info.endpointName == ENDPOINT_PREFIX + scannedQrToken) {
@@ -123,9 +122,10 @@ class AeroNearbyTransport(
 
     private val lifecycleCallback = object : ConnectionLifecycleCallback() {
         override fun onConnectionInitiated(endpointId: String, info: ConnectionInfo) {
-            val expected = activeToken?.let { ENDPOINT_PREFIX + it }
-            val isExpectedPeer = info.endpointName == expected ||
-                (discovered.containsKey(endpointId) && discovered[endpointId] == expected)
+            // The one-time token is part of the service ID used for both
+            // advertising and discovery, so only a peer with the scanned QR
+            // token can discover this active session.
+            val isExpectedPeer = activeToken != null && (advertising || discovering)
             if (!isExpectedPeer) {
                 client.rejectConnection(endpointId)
                 return
@@ -248,6 +248,8 @@ class AeroNearbyTransport(
         incomingPayloads.clear()
         activeToken = null
     }
+
+    private fun serviceId(token: String): String = SERVICE_ID + "." + token
 
     private fun validToken(value: String): Boolean =
         value.length in 24..64 && value.matches(Regex("[A-Za-z0-9_-]+"))
