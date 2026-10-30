@@ -115,7 +115,7 @@ fun DeviceConnectScreen(
                         color = AeroTextPrimary
                     )
                     Text(
-                        text = if (isReceiveMode) "Listening for incoming transfers" else "Scanning local Wi-Fi peers",
+                        text = if (isReceiveMode) "Ready for automatic nearby connection" else "Scan the receiver QR code",
                         style = MaterialTheme.typography.labelSmall,
                         color = AeroSecondaryGreen
                     )
@@ -157,7 +157,7 @@ private fun ReceiveBeaconView(
             )
             Spacer(modifier = Modifier.height(4.dp))
             Text(
-                text = "Show this QR to the sender. Both phones must be on the same Wi-Fi or hotspot; internet is not required. Received files are saved in Aero SHAREit's app-specific Downloads folder.",
+                text = "Show this QR to the sender. Aero SHAREit connects the phones automatically nearby; no hotspot or same Wi-Fi setup is required.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = AeroTextSecondary,
                 fontSize = 13.sp
@@ -183,7 +183,7 @@ private fun ReceiveBeaconView(
                         )
                         Spacer(modifier = Modifier.width(10.dp))
                         Text(
-                            text = "Local Receiver Active",
+                            text = "Nearby Receiver Active",
                             fontWeight = FontWeight.Bold,
                             fontSize = 14.sp,
                             color = AeroTextPrimary
@@ -191,11 +191,11 @@ private fun ReceiveBeaconView(
                     }
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(text = "Device: $deviceName", fontSize = 12.sp, color = AeroTextSecondary)
-                    Text(text = "Network: Same local network or hotspot • TCP port 8829", fontSize = 12.sp, color = AeroTextSecondary)
-                    Text(text = "Security: Encrypted transfer + SHA-256 verification; approval depends on SafeDrop setting", fontSize = 12.sp, color = AeroSecondaryGreen, fontWeight = FontWeight.SemiBold)
+                    Text(text = "Connection: Automatic nearby wireless connection", fontSize = 12.sp, color = AeroTextSecondary)
+                    Text(text = "Security: Nearby encrypted connection • QR-based pairing", fontSize = 12.sp, color = AeroSecondaryGreen, fontWeight = FontWeight.SemiBold)
                     Spacer(modifier = Modifier.height(12.dp))
                     Text(text = "Scan this QR code from the sending phone", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = AeroTextPrimary)
-                    Text(text = if (qrPayload.isNotBlank()) "Ready to connect" else "Waiting for local Wi-Fi address…", fontSize = 12.sp, color = AeroTextSecondary)
+                    Text(text = if (qrPayload.isNotBlank()) "Ready to connect" else "Preparing nearby QR connection…", fontSize = 12.sp, color = AeroTextSecondary)
                     if (qrPayload.isNotBlank()) {
                         Spacer(modifier = Modifier.height(8.dp))
                         AndroidView(
@@ -283,7 +283,8 @@ private fun SendDiscoveryView(
                                     scannerView.value = this
                                     decodeContinuous { result ->
                                         val scannedPayload = result.text.trim()
-                                        if (scannedPayload.startsWith("AEROSHARE_CONNECT_V1|") ||
+                                        if (scannedPayload.startsWith("AEROSHARE_NEARBY_V1|") ||
+                                            scannedPayload.startsWith("AEROSHARE_CONNECT_V1|") ||
                                             scannedPayload.matches(Regex("\\d{6}")) ||
                                             scannedPayload.matches(Regex("AEROSHARE:\\d{6}"))) {
                                             scanning = false
@@ -334,7 +335,7 @@ private fun SendDiscoveryView(
                         )
                         Spacer(modifier = Modifier.height(6.dp))
                         Text(
-                            text = "Keep both phones on the same Wi-Fi network and open Receive on the other phone. Nearby Aero SHAREit devices appear here automatically.",
+                            text = "Open Receive on the other phone, then scan its QR code. The app handles nearby discovery and connection automatically.",
                             fontSize = 12.sp,
                             color = AeroTextSecondary
                         )
