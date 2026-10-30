@@ -194,8 +194,8 @@ private fun ReceiveBeaconView(
                     }
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(text = "Device: $deviceName", fontSize = 12.sp, color = AeroTextSecondary)
-                    Text(text = "Network: Same local Wi-Fi • TCP port 8829", fontSize = 12.sp, color = AeroTextSecondary)
-                    Text(text = "Safety: Receiver approval + encrypted transfer + SHA-256 verification", fontSize = 12.sp, color = AeroSecondaryGreen, fontWeight = FontWeight.SemiBold)
+                    Text(text = "Network: Same local network or hotspot • TCP port 8829", fontSize = 12.sp, color = AeroTextSecondary)
+                    Text(text = "Security: Encrypted transfer + SHA-256 verification; approval depends on SafeDrop setting", fontSize = 12.sp, color = AeroSecondaryGreen, fontWeight = FontWeight.SemiBold)
                     Spacer(modifier = Modifier.height(12.dp))
                     Text(text = "Your 6-digit discovery code", fontSize = 12.sp, color = AeroTextSecondary)
                     Text(text = pairingCode.ifBlank { "Starting…" }, fontSize = 30.sp, fontWeight = FontWeight.ExtraBold, color = AeroEmerald)
