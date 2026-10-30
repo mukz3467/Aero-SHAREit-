@@ -4,11 +4,13 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.engine.AeroTransferClient
+import com.example.engine.AeroTransferProtocol
 import com.example.engine.AeroTransferServer
 import com.example.engine.CacheUsageReport
 import com.example.engine.FileIntegrityEngine
 import com.example.engine.FileManagerAndCleanerEngine
 import com.example.engine.LocalMediaStoreExplorer
+import com.example.engine.PairingCodeManager
 import com.example.engine.PhoneToPcBridgeServer
 import com.example.engine.SafeDropManager
 import com.example.engine.SafeDropRequest
@@ -20,6 +22,7 @@ import com.example.model.FileReceiptItem
 import com.example.model.GroupPeer
 import com.example.model.GroupRoomSession
 import com.example.model.NearbyDevice
+import com.example.model.PairingSession
 import com.example.model.TransferRecord
 import com.example.model.TransferStatus
 import com.example.model.VerifiedReceipt
@@ -80,7 +83,11 @@ data class TransferUiState(
     val categorySizes: Map<FileCategory, Long> = emptyMap(),
     val cacheReport: CacheUsageReport = CacheUsageReport(0L, 0L, 0, 0, "0 B", "0 B"),
     val storageCleanerMessage: String? = null,
-    val selectedHistoryRecordIds: Set<String> = emptySet()
+    val selectedHistoryRecordIds: Set<String> = emptySet(),
+    val pairingCode: String = "",
+    val currentPairingSession: PairingSession? = null,
+    val isPairingHost: Boolean = false,
+    val isPairingReceiver: Boolean = false
 )
 
 class TransferViewModel(application: Application) : AndroidViewModel(application) {
@@ -187,12 +194,105 @@ class TransferViewModel(application: Application) : AndroidViewModel(application
     }
 
     private fun initNearbyDevices() {
-        val peers = listOf(
-            NearbyDevice("d1", "Sarah's Galaxy S24 Ultra", "192.168.49.20", 8829, is5Ghz = true, signalStrength = 98, deviceModel = "Samsung SM-S928B"),
-            NearbyDevice("d2", "Alex's Pixel 9 Pro", "192.168.49.21", 8829, is5Ghz = true, signalStrength = 92, deviceModel = "Google Pixel 9 Pro"),
-            NearbyDevice("d3", "Living Room Android TV", "192.168.49.22", 8829, is5Ghz = false, signalStrength = 78, deviceModel = "Google TV 4K")
+        _uiState.update {
+            it.copy(
+                nearbyDevices = emptyList(),
+                selectedPeer = null,
+                pairingCode = "",
+                currentPairingSession = null,
+                isPairingHost = false,
+                isPairingReceiver = false
+            )
+        }
+    }
+
+    fun createPairingSession() {
+        val session = PairingCodeManager.generatePairingSession(
+            hostIp = PairingCodeManager.getLocalIpAddress(),
+            port = AeroTransferProtocol.DEFAULT_PORT
         )
-        _uiState.update { it.copy(nearbyDevices = peers) }
+
+        _uiState.update {
+            it.copy(
+                currentPairingSession = session,
+                pairingCode = session.code,
+                isPairingHost = true,
+                isPairingReceiver = false,
+                currentScreen = ActiveScreen.DISCOVERING_PEERS
+            )
+        }
+
+        serverEngine?.stop()
+        serverEngine = AeroTransferServer(
+            context = getApplication(),
+            onIncomingRequest = { request, callback ->
+                _uiState.update { it.copy(pendingSafeDropRequest = request) }
+                callback(true)
+            },
+            onProgressUpdate = { record ->
+                _uiState.update { it.copy(activeTransferRecord = record) }
+            },
+            onTransferFinished = { receipt ->
+                addVerifiedReceipt(receipt)
+                val finalRecord = TransferRecord(
+                    id = receipt.sessionId,
+                    fileName = receipt.fileReceiptItems.firstOrNull()?.fileName ?: "Received_Batch",
+                    fileSizeFormatted = StorageSmartManager.formatBytes(receipt.totalBytesTransferred),
+                    totalBytes = receipt.totalBytesTransferred,
+                    transferredBytes = receipt.totalBytesTransferred,
+                    progress = 1.0f,
+                    speedMbps = receipt.averageSpeedMbps,
+                    isIncoming = true,
+                    peerName = receipt.peerDeviceName,
+                    status = TransferStatus.COMPLETED,
+                    localFilePath = "${getApplication<Application>().cacheDir.path}/transfers/${receipt.fileReceiptItems.firstOrNull()?.fileName}",
+                    sha256Checksum = receipt.fileReceiptItems.firstOrNull()?.sha256Checksum
+                )
+                onTransferRecordCompleted(finalRecord, isOutgoing = false)
+            },
+            onError = { _ ->
+                _uiState.update { state ->
+                    val cur = state.activeTransferRecord
+                    state.copy(activeTransferRecord = cur?.copy(status = TransferStatus.FAILED))
+                }
+            }
+        )
+        serverEngine?.start()
+    }
+
+    fun connectViaPairingCode(code: String) {
+        val normalized = code.trim()
+        val session = PairingCodeManager.parseManualCode(
+            code = normalized,
+            hostIp = PairingCodeManager.getLocalIpAddress(),
+            port = AeroTransferProtocol.DEFAULT_PORT
+        ) ?: return
+
+        _uiState.update {
+            it.copy(
+                currentPairingSession = session,
+                pairingCode = session.code,
+                isPairingReceiver = true,
+                isPairingHost = false,
+                currentScreen = ActiveScreen.ACTIVE_TRANSFER
+            )
+        }
+
+        startTransferToPeer(session)
+    }
+
+    fun connectViaQrPayload(payload: String) {
+        val session = PairingCodeManager.parseQrPayload(payload) ?: return
+        _uiState.update {
+            it.copy(
+                currentPairingSession = session,
+                pairingCode = session.code,
+                isPairingReceiver = true,
+                isPairingHost = false,
+                currentScreen = ActiveScreen.ACTIVE_TRANSFER
+            )
+        }
+        startTransferToPeer(session)
     }
 
     private fun updateAutopilot() {
@@ -257,9 +357,21 @@ class TransferViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun startTransferToPeer(peer: NearbyDevice) {
-        val selected = _uiState.value.availableFiles.filter { _uiState.value.selectedFiles.contains(it.id) }
-        val totalBytes = selected.sumOf { it.sizeBytes }
+        val session = PairingSession(
+            sessionId = UUID.randomUUID().toString(),
+            code = "",
+            hostIp = peer.ipAddress,
+            port = peer.port,
+            expiresAt = System.currentTimeMillis() + AeroTransferProtocol.PAIRING_SESSION_TTL_MS
+        )
+        startTransferToPeer(session)
+    }
 
+    fun startTransferToPeer(session: PairingSession) {
+        val selected = _uiState.value.availableFiles.filter { _uiState.value.selectedFiles.contains(it.id) }
+        if (selected.isEmpty()) return
+
+        val totalBytes = selected.sumOf { it.sizeBytes }
         val record = TransferRecord(
             id = UUID.randomUUID().toString(),
             fileName = selected.firstOrNull()?.name ?: "Batch (${selected.size} files)",
@@ -269,13 +381,13 @@ class TransferViewModel(application: Application) : AndroidViewModel(application
             progress = 0f,
             speedMbps = 0f,
             isIncoming = false,
-            peerName = peer.name,
+            peerName = "Paired Device",
             status = TransferStatus.HANDSHAKING
         )
 
         _uiState.update {
             it.copy(
-                selectedPeer = peer,
+                currentPairingSession = session,
                 activeTransferRecord = record,
                 currentScreen = ActiveScreen.ACTIVE_TRANSFER
             )
@@ -283,8 +395,8 @@ class TransferViewModel(application: Application) : AndroidViewModel(application
 
         transferJob?.cancel()
         clientEngine?.startTransfer(
-            targetIp = peer.ipAddress,
-            targetPort = peer.port,
+            targetIp = session.hostIp,
+            targetPort = session.port,
             localDeviceName = _uiState.value.deviceName,
             files = selected
         )
