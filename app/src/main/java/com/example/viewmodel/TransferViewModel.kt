@@ -296,7 +296,7 @@ class TransferViewModel(application: Application) : AndroidViewModel(application
                 it.copy(
                     selectedPeer = peer,
                     currentScreen = ActiveScreen.FILE_BROWSER,
-                    storageCleanerMessage = "Connected to ${peer.name} on the local network. Select files and tap Send."
+                    storageCleanerMessage = "Receiver found: ${peer.name}. Select files and tap Send to start the transfer."
                 )
             }
         }
