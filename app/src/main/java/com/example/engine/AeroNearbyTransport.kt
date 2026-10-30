@@ -125,7 +125,7 @@ class AeroNearbyTransport(
             // The one-time token is part of the service ID used for both
             // advertising and discovery, so only a peer with the scanned QR
             // token can discover this active session.
-            val isExpectedPeer = activeToken != null && (advertising || discovering)
+            val isExpectedPeer = activeToken != null
             if (!isExpectedPeer) {
                 client.rejectConnection(endpointId)
                 return
@@ -144,6 +144,7 @@ class AeroNearbyTransport(
                 connected.add(endpointId)
                 listener.onConnected(endpointId)
                 stopDiscovery()
+                stopAdvertising()
             } else {
                 listener.onError("Nearby connection failed (status ${result.status.statusCode}).")
             }
