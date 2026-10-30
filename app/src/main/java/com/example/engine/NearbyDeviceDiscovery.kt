@@ -16,6 +16,7 @@ import java.net.NetworkInterface
 import android.util.Base64
 import java.util.Collections
 import java.util.UUID
+import java.security.SecureRandom
 
 /**
  * Best-effort discovery for peers on the same local IP network.
@@ -34,7 +35,9 @@ class NearbyDeviceDiscovery(
     }
 
     private val instanceId = UUID.randomUUID().toString()
-    private val pairingCode = (100000 + (instanceId.hashCode().toLong().and(0x7fffffff) % 900000)).toString()
+    // This six-digit code is unpredictable, but it is broadcast on the LAN.
+    // Treat it only as a discovery hint, never as peer authentication.
+    private val pairingCode = (SecureRandom().nextInt(900_000) + 100_000).toString()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var job: Job? = null
     @Volatile private var stopped = false
