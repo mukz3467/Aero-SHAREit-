@@ -1,6 +1,7 @@
 package com.example.viewmodel
 
 import android.app.Application
+import android.util.Base64
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.engine.AeroTransferClient
@@ -34,6 +35,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
 import java.io.File
 import java.net.Inet4Address
+import java.net.InetAddress
 import java.net.NetworkInterface
 import java.util.Collections
 import java.util.UUID
@@ -60,6 +62,7 @@ data class TransferUiState(
     val selectedCategory: FileCategory = FileCategory.PHOTOS,
     val nearbyDevices: List<NearbyDevice> = emptyList(),
     val localPairingCode: String = "",
+    val localQrPayload: String = "",
     val selectedPeer: NearbyDevice? = null,
     val activeTransferRecord: TransferRecord? = null,
     val historyRecords: List<TransferRecord> = emptyList(),
@@ -229,25 +232,73 @@ class TransferViewModel(application: Application) : AndroidViewModel(application
                     })
                 }
             },
-            onLocalPairingCode = { code -> _uiState.update { it.copy(localPairingCode = code) } }
+            onLocalPairingCode = { code -> _uiState.update { it.copy(localPairingCode = code) } },
+            onLocalQrPayload = { payload -> _uiState.update { it.copy(localQrPayload = payload) } }
         ).also { it.start() }
     }
 
     fun connectUsingPairingCode(code: String) {
-        val normalized = code.filter(Char::isDigit)
+        val rawValue = code.trim()
+        val qrPeer = parseReceiverQrPayload(rawValue)
+        if (qrPeer != null) {
+            selectQrReceiver(qrPeer)
+            return
+        }
+
+        // Backward compatibility for old AEROSHARE:123456 QR codes and manual codes.
+        val normalized = rawValue.substringAfter("AEROSHARE:", rawValue).filter(Char::isDigit)
         if (normalized.length != 6) {
-            _uiState.update { it.copy(storageCleanerMessage = "Enter the 6-digit PIN shown on the receiving phone.") }
+            _uiState.update { it.copy(storageCleanerMessage = "Scan the QR code shown on the receiving phone.") }
             return
         }
         val peer = _uiState.value.nearbyDevices.firstOrNull { it.pairingCode == normalized }
         if (peer == null) {
-            _uiState.update { it.copy(storageCleanerMessage = "No nearby AeroShare device has that PIN. Keep both phones on the same Wi-Fi and try again.") }
+            _uiState.update { it.copy(storageCleanerMessage = "Receiver not found. Make sure both phones are on the same Wi-Fi or hotspot.") }
             return
         }
+        selectQrReceiver(peer)
+    }
+
+    private fun parseReceiverQrPayload(payload: String): NearbyDevice? {
+        val parts = payload.split('|')
+        if (parts.size != 5 || parts[0] != "AEROSHARE_CONNECT_V1") return null
+        val ip = parts[1]
+        if (!ip.matches(Regex("^(?:\\d{1,3}\\.){3}\\d{1,3}$"))) return null
+        val octets = ip.split('.').mapNotNull { it.toIntOrNull() }
+        if (octets.size != 4 || octets.any { it !in 0..255 }) return null
+        val address = try { InetAddress.getByName(ip) as? Inet4Address } catch (_: Exception) { null } ?: return null
+        if (address.isLoopbackAddress || address.isMulticastAddress ||
+            (!address.isSiteLocalAddress && !address.isLinkLocalAddress)) return null
+
+        val port = parts[2].toIntOrNull()?.takeIf { it in 1..65535 } ?: return null
+        val code = parts[3].takeIf { it.matches(Regex("\\d{6}")) } ?: return null
+        val deviceName = try {
+            String(Base64.decode(parts[4], Base64.URL_SAFE or Base64.NO_WRAP), Charsets.UTF_8)
+                .take(80).ifBlank { "Aero SHAREit receiver" }
+        } catch (_: Exception) {
+            "Aero SHAREit receiver"
+        }
+        return NearbyDevice(
+            id = "qr:$ip:$port",
+            name = deviceName,
+            ipAddress = ip,
+            port = port,
+            deviceModel = "Aero SHAREit receiver",
+            pairingCode = code
+        )
+    }
+
+    private fun selectQrReceiver(peer: NearbyDevice) {
         if (_uiState.value.selectedFiles.isNotEmpty()) {
             startTransferToPeer(peer)
         } else {
-            _uiState.update { it.copy(selectedPeer = peer, currentScreen = ActiveScreen.FILE_BROWSER, storageCleanerMessage = "PIN matched ${peer.name}. Select files, then tap Send to connect.") }
+            _uiState.update {
+                it.copy(
+                    selectedPeer = peer,
+                    currentScreen = ActiveScreen.FILE_BROWSER,
+                    storageCleanerMessage = "Connected to ${peer.name} on the local network. Select files and tap Send."
+                )
+            }
         }
     }
 
