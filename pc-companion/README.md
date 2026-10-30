@@ -32,5 +32,6 @@ For reliable connections across restrictive NATs/firewalls, configure a TURN ser
 - Pairing room IDs and keys are random; rooms expire after 10 minutes and admit at most two peers.
 - The server accepts only signaling message types and does not expose a file upload/download endpoint.
 - Use HTTPS/WSS in production. The browser validates WebRTC's DTLS connection, but this prototype does not yet add a separate verified device identity or file-level SHA-256 receipt.
-- The browser companion currently supports browser-to-browser file transfer. It is **not yet wired into the Android native app's file picker, transfer history, or progress UI**. That integration and physical Android/Windows testing are required before claiming the full Aero SHAREit cross-platform flow is complete.
-- The QR page currently requires the other device to open the link in a browser. Native app deep-link routing is a follow-up integration task.
+- Android's in-app QR scanner now recognizes the companion's HTTPS room link and opens it in the phone browser. The actual WebRTC file picker/transfer runs in that browser; it is not yet integrated with the Android app's native file picker, history, or progress screen.
+- Android ↔ PC therefore requires internet access for the hosted pairing/signaling page. Files use the WebRTC data channel; direct peer connectivity is attempted first, but a TURN relay may be required on restrictive networks.
+- Physical Android/Windows testing, deployment of this signaling service, and production TURN configuration are still required before calling the complete cross-platform flow production-ready.

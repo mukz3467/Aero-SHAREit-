@@ -2,6 +2,8 @@ package com.example
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.content.Intent
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -73,6 +75,33 @@ class MainActivity : ComponentActivity() {
         if (missing.isNotEmpty()) nearbyPermissionLauncher.launch(missing.toTypedArray())
     }
 
+    /**
+     * PC companion QR codes contain an HTTPS room link. Open that link in the
+     * browser so Android can join the PC's WebRTC data channel. Nearby-token
+     * and legacy LAN codes continue through the native transfer ViewModel.
+     */
+    private fun handlePairingCode(rawValue: String) {
+        val value = rawValue.trim()
+        val uri = runCatching { Uri.parse(value) }.getOrNull()
+        val room = uri?.getQueryParameter("room").orEmpty()
+        val key = uri?.getQueryParameter("key").orEmpty()
+        val isPcCompanionLink = uri != null &&
+            uri.scheme.equals("https", ignoreCase = true) &&
+            !uri.host.isNullOrBlank() &&
+            room.matches(Regex("[A-Za-z0-9_-]{8,32}")) &&
+            key.matches(Regex("[A-Za-z0-9_-]{24,64}"))
+
+        if (isPcCompanionLink) {
+            runCatching {
+                startActivity(Intent(Intent.ACTION_VIEW, uri))
+            }.onFailure {
+                transferViewModel.clearStorageCleanerMessage()
+            }
+            return
+        }
+        transferViewModel.connectUsingPairingCode(value)
+    }
+
     private fun requestStoragePermissionsIfNeeded() {
         val required = if (Build.VERSION.SDK_INT >= 33) {
             arrayOf(
@@ -122,7 +151,7 @@ private fun AeroAppContent(
             uiState = state,
             onBack = { viewModel.navigateTo(ActiveScreen.FILE_BROWSER) },
             onSelectPeer = viewModel::startTransferToPeer,
-            onConnectWithPin = viewModel::connectUsingPairingCode,
+            onConnectWithPin = ::handlePairingCode,
             localQrPayload = state.localQrPayload
         )
 
@@ -131,7 +160,7 @@ private fun AeroAppContent(
             uiState = state,
             onBack = { viewModel.navigateTo(ActiveScreen.HOME) },
             onSelectPeer = viewModel::startTransferToPeer,
-            onConnectWithPin = viewModel::connectUsingPairingCode,
+            onConnectWithPin = ::handlePairingCode,
             localQrPayload = state.localQrPayload
         )
 
