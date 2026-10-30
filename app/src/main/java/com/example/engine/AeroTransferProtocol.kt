@@ -7,6 +7,8 @@ object AeroTransferProtocol {
     const val TURBO_CHUNK_SIZE = 64 * 1024 // 64 KB
     const val SOCKET_TIMEOUT_MS = 25000
     const val MAX_CONCURRENT_CLIENTS = 4
+    const val PAIRING_CODE_LENGTH = 6
+    const val PAIRING_SESSION_TTL_MS = 5L * 60L * 1000L
 
     const val MAGIC_HEADER: Int = 0x4145524F // "AERO"
     const val PROTOCOL_VERSION: Int = 2
