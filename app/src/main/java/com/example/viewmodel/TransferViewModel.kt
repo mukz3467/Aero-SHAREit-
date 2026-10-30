@@ -261,7 +261,9 @@ class TransferViewModel(application: Application) : AndroidViewModel(application
             override fun onIncomingFile(endpointId: String, file: File, payloadId: Long) {
                 viewModelScope.launch {
                     try {
-                        val folder = File(getApplication<Application>().filesDir, "Downloads").apply { mkdirs() }
+                        val context = getApplication<Application>()
+                        val folder = context.getExternalFilesDir(android.os.Environment.DIRECTORY_DOWNLOADS) ?: File(context.filesDir, "Downloads")
+                        folder.mkdirs()
                         val safeName = file.name.replace(Regex("[^A-Za-z0-9._ -]"), "_").take(120)
                         val destination = File(folder, safeName).let {
                             if (it.exists()) File(folder, System.currentTimeMillis().toString() + "_" + safeName) else it
