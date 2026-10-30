@@ -2,9 +2,9 @@ name: Android build verification
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, feature/offline-mesh-foundation]
   push:
-    branches: [main, "fix/**", "feature/offline-mesh-foundation"]
+    branches: [main, "fix/**", "feature/**"]
   workflow_dispatch:
 
 concurrency:
