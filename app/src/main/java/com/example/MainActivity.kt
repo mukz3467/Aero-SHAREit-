@@ -85,7 +85,8 @@ class MainActivity : ComponentActivity() {
         val uri = runCatching { Uri.parse(value) }.getOrNull()
         val room = uri?.getQueryParameter("room").orEmpty()
         val key = uri?.getQueryParameter("key").orEmpty()
-        val isPcCompanionLink = uri?.scheme.equals("https", ignoreCase = true) &&
+        val isPcCompanionLink = uri != null &&
+            uri.scheme.equals("https", ignoreCase = true) &&
             !uri.host.isNullOrBlank() &&
             room.matches(Regex("[A-Za-z0-9_-]{8,32}")) &&
             key.matches(Regex("[A-Za-z0-9_-]{24,64}"))
