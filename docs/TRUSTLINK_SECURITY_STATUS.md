@@ -23,11 +23,15 @@ security certification or a claim that all advertised transfer modes work.
 
 - The active discovery PIN is generated locally and broadcast in the UDP discovery
   packet. It is therefore visible to devices on the same local network.
-- The QR code currently encodes that same six-digit discovery code; it is not an
-  authenticated QR invitation or a cryptographic identity credential.
-- Entering/scanning the code selects a discovered peer in the UI. The active TCP
-  server does not validate that PIN as a one-time invitation, and the
-  `PairingCodeManager` expiry/attempt limits are not enforced by the active path.
+- The receiver QR now encodes the receiver's local IPv4 address, TCP port,
+  six-digit discovery code, and display name. Scanning it lets the sender select
+  the receiver directly without waiting for the UDP peer list to populate.
+- The QR payload is a connection locator, not an authenticated invitation or a
+  cryptographic identity credential. The active TCP server does not validate the
+  six-digit code as a one-time invitation, and the `PairingCodeManager`
+  expiry/attempt limits are not enforced by the active path.
+- The QR flow still requires both phones to share a reachable local Wi-Fi network
+  or hotspot. It does not create a Wi-Fi Direct group and does not require internet.
 - The active ECDH exchange does not authenticate either public key. Encryption
   protects traffic against passive observers after key agreement, but an active
   man-in-the-middle can substitute keys unless a separate authenticated check is
@@ -41,7 +45,8 @@ security certification or a claim that all advertised transfer modes work.
 ## Offline and mesh limitations
 
 - Current discovery and transfer require both devices to share a reachable local
-  IP network (for example, the same Wi-Fi network or a configured hotspot).
+  IP network (for example, the same Wi-Fi network or a configured hotspot). The
+  receiver QR supplies its local IP and TCP port to simplify peer selection.
 - The discovery code does not create a Wi-Fi Direct group. The current discovery
   class explicitly performs LAN broadcast discovery and does not negotiate Wi-Fi
   Direct.
