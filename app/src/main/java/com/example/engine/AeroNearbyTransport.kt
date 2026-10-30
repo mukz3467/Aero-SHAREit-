@@ -54,6 +54,7 @@ class AeroNearbyTransport(
     private val strategy = Strategy.P2P_POINT_TO_POINT
     private val connected = ConcurrentHashMap.newKeySet<String>()
     private val discovered = ConcurrentHashMap<String, String>()
+    private val incomingPayloads = ConcurrentHashMap<Long, Payload>()
     @Volatile private var activeToken: String? = null
     @Volatile private var advertising = false
     @Volatile private var discovering = false
@@ -155,20 +156,35 @@ class AeroNearbyTransport(
 
     private val payloadCallback = object : PayloadCallback() {
         override fun onPayloadReceived(endpointId: String, payload: Payload) {
-            val received = payload.asFile()?.asJavaFile()
-            if (received != null) {
-                listener.onIncomingFile(endpointId, received, payload.id)
-            }
+            if (payload.type == Payload.Type.FILE) incomingPayloads[payload.id] = payload
         }
 
         override fun onPayloadTransferUpdate(endpointId: String, update: PayloadTransferUpdate) {
-            listener.onPayloadProgress(
-                endpointId,
-                update.payloadId,
-                update.bytesTransferred,
-                update.totalBytes,
-                update.status
-            )
+            listener.onPayloadProgress(endpointId, update.payloadId, update.bytesTransferred, update.totalBytes, update.status)
+            if (update.status == PayloadTransferUpdate.Status.SUCCESS) {
+                val payload = incomingPayloads.remove(update.payloadId) ?: return
+                val uri = payload.asFile()?.asUri()
+                if (uri != null) {
+                    try {
+                        val destination = File(appContext.cacheDir, "aero_received_" + update.payloadId)
+                        appContext.contentResolver.openInputStream(uri)?.use { input ->
+                            destination.outputStream().use { output -> input.copyTo(output) }
+                        } ?: throw IllegalStateException("Cannot open incoming file payload.")
+                        listener.onIncomingFile(endpointId, destination, update.payloadId)
+                        appContext.contentResolver.delete(uri, null, null)
+                    } catch (error: Exception) {
+                        listener.onError("Could not materialize received file: " + (error.localizedMessage ?: "unknown error"))
+                    } finally {
+                        payload.close()
+                    }
+                } else {
+                    payload.close()
+                    listener.onError("Incoming file payload has no readable URI.")
+                }
+            } else if (update.status == PayloadTransferUpdate.Status.FAILURE) {
+                incomingPayloads.remove(update.payloadId)?.close()
+                listener.onError("Nearby file transfer failed.")
+            }
         }
     }
 
@@ -181,7 +197,8 @@ class AeroNearbyTransport(
             listener.onError("Selected file cannot be read: ${file.name}")
             return
         }
-        client.sendPayload(endpointId, Payload.fromFile(file))
+        val payload = Payload.fromFile(file).apply { setFileName(file.name) }
+        client.sendPayload(endpointId, payload)
             .addOnFailureListener { error ->
                 listener.onError("File transfer could not start: ${error.localizedMessage ?: "unknown error"}")
             }
@@ -219,6 +236,8 @@ class AeroNearbyTransport(
         client.stopAllEndpoints()
         connected.clear()
         discovered.clear()
+        incomingPayloads.values.forEach { it.close() }
+        incomingPayloads.clear()
         activeToken = null
     }
 
