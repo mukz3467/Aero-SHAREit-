@@ -160,7 +160,7 @@ private fun AeroAppContent(
             uiState = state,
             onBack = { viewModel.navigateTo(ActiveScreen.HOME) },
             onSelectPeer = viewModel::startTransferToPeer,
-            onConnectWithPin = viewModel::connectUsingPairingCode,
+            onConnectWithPin = ::handlePairingCode,
             localQrPayload = state.localQrPayload
         )
 
