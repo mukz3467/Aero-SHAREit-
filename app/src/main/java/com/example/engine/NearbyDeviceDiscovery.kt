@@ -16,6 +16,7 @@ import java.net.NetworkInterface
 import android.util.Base64
 import java.util.Collections
 import java.util.UUID
+import java.security.SecureRandom
 
 /**
  * Best-effort discovery for peers on the same local IP network.
@@ -25,6 +26,7 @@ class NearbyDeviceDiscovery(
     private val deviceNameProvider: () -> String,
     private val onDevicesChanged: (List<NearbyDevice>) -> Unit,
     private val onLocalPairingCode: (String) -> Unit = {},
+    private val onLocalQrPayload: (String) -> Unit = {},
     private val tcpPort: Int = AeroTransferProtocol.DEFAULT_PORT
 ) {
     companion object {
@@ -34,7 +36,9 @@ class NearbyDeviceDiscovery(
     }
 
     private val instanceId = UUID.randomUUID().toString()
-    private val pairingCode = (100000 + (instanceId.hashCode().toLong().and(0x7fffffff) % 900000)).toString()
+    // This six-digit code is unpredictable, but it is broadcast on the LAN.
+    // Treat it only as a discovery hint, never as peer authentication.
+    private val pairingCode = (SecureRandom().nextInt(900_000) + 100_000).toString()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var job: Job? = null
     @Volatile private var stopped = false
@@ -68,6 +72,14 @@ class NearbyDeviceDiscovery(
                             deviceNameProvider().take(80).toByteArray(Charsets.UTF_8),
                             Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING
                         )
+                        val localIp = findLocalIpv4Address()
+                        val qrPayload = localIp?.let {
+                            "AEROSHARE_CONNECT_V1|$it|$tcpPort|$pairingCode|$safeName"
+                        }.orEmpty()
+                        if (qrPayload != lastQrPayload) {
+                            lastQrPayload = qrPayload
+                            onLocalQrPayload(qrPayload)
+                        }
                         val message = "$MAGIC|$instanceId|$tcpPort|$safeName|$pairingCode".toByteArray(Charsets.UTF_8)
                         val packet = DatagramPacket(message, message.size)
                         try {
@@ -127,6 +139,30 @@ class NearbyDeviceDiscovery(
                     }
                 }
             }
+        }
+    }
+
+    /**
+     * Returns a private/link-local IPv4 address that another device on this LAN
+     * can use to reach the TCP receiver. This QR flow does not create Wi-Fi Direct.
+     */
+    private fun findLocalIpv4Address(): String? {
+        return try {
+            val interfaces = Collections.list(NetworkInterface.getNetworkInterfaces())
+                .filter { it.isUp && !it.isLoopback }
+            val candidates = interfaces.flatMap { network ->
+                network.interfaceAddresses.mapNotNull { address ->
+                    val ipv4 = address.address as? java.net.Inet4Address ?: return@mapNotNull null
+                    if (ipv4.isLoopbackAddress || ipv4.isMulticastAddress ||
+                        (!ipv4.isSiteLocalAddress && !ipv4.isLinkLocalAddress)) return@mapNotNull null
+                    network.name.lowercase() to ipv4.hostAddress
+                }
+            }
+            candidates.firstOrNull { (name, _) ->
+                name.contains("wlan") || name.contains("wifi") || name.contains("swlan") || name.contains("ap")
+            }?.second ?: candidates.firstOrNull()?.second
+        } catch (_: Exception) {
+            null
         }
     }
 
