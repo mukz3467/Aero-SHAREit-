@@ -4,6 +4,7 @@ import android.app.Application
 import android.util.Base64
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.engine.AeroNearbyTransport
 import com.example.engine.AeroTransferClient
 import com.example.engine.AeroTransferServer
 import com.example.engine.AeroTransferProtocol
@@ -103,6 +104,9 @@ class TransferViewModel(application: Application) : AndroidViewModel(application
     private val groupTransferClients = mutableSetOf<AeroTransferClient>()
     private var pcBridgeServer: PhoneToPcBridgeServer? = null
     private var discoveryEngine: NearbyDeviceDiscovery? = null
+    private var nearbyTransport: AeroNearbyTransport? = null
+    private var nearbyToken: String = UUID.randomUUID().toString().replace("-", "")
+    private var sendingNearby = false
     @Volatile private var pendingSafeDropApproval: ((Boolean) -> Unit)? = null
 
     init {
@@ -111,6 +115,7 @@ class TransferViewModel(application: Application) : AndroidViewModel(application
         refreshMediaStore()
         refreshCacheUsage()
         initNearbyDevices()
+        initNearbyTransport()
     }
 
     private fun initTransferEngines() {
